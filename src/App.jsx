@@ -1040,7 +1040,7 @@ export function App() {
                       onChange={(e) =>
                         handleLeadFieldChange("owner_id", e.target.value)
                       }
-                      disabled={!isAdmin}
+                      
                     >
                       <option value="">Seçiniz</option>
                       {users.map((user) => (
