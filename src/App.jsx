@@ -268,7 +268,7 @@ export function App() {
       status: leadForm.status,
       stage: leadForm.stage || null,
       quote: leadForm.quote || null,
-      owner_id: isAdmin ? leadForm.owner_id || currentProfile.id : currentProfile.id,
+      owner_id: leadForm.owner_id || currentProfile.id,
       updated_at: nowIso,
     };
 
