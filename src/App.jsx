@@ -619,22 +619,22 @@ export function App() {
               </div>
 
               <div className="field">
-                <label className="field-label">Lead Sahibi</label>
-                <select
-                  className="select"
-                  value={filters.ownerId}
-                  onChange={(e) =>
-                    setFilters((prev) => ({ ...prev, ownerId: e.target.value }))
-                  }
-                >
-                  <option value="">Tümü</option>
-                  {users.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+  <label className="field-label">Lead Sahibi</label>
+  <select
+    className="select"
+    value={filters.ownerId}
+    onChange={(e) =>
+      setFilters((prev) => ({ ...prev, ownerId: e.target.value }))
+    }
+  >
+    <option value="">Tümü</option>
+    {users.map((user) => (
+      <option key={user.id} value={user.id}>
+        {user.username} {/* DOĞRUSU BU */}
+      </option>
+    ))}
+  </select>
+</div>
 
               <div className="field">
                 <label className="field-label">Kaynak</label>
