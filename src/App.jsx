@@ -900,7 +900,7 @@ export function App() {
                             <td>{u.role === "admin" ? "Admin" : "Satış"}</td>
                             <td>{u.active === false ? "Pasif" : "Aktif"}</td>
                             <td>
-                              {u.id !== currentUser.id && (
+                              {u.id !== currentProfile.id && (
                                 <button
                                   className="btn btn-ghost"
                                   type="button"
