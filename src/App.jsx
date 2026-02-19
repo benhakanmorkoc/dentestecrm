@@ -12,13 +12,23 @@ const LEAD_SOURCES = [
 const LEAD_STATUSES = [
   "Yeni",
   "Cevapsız",
-  "Görüşüldü",
-  "Teklif Verildi",
-  "Satıldı",
+  "Sıcak",
+  "Satış",
+  "İptal",
+  "Yabancı",
+  "Türk",
+  "Düşünüp Geri Dönüş Sağlayacak",
+  "İletişimde",
+  "İstanbul Dışı",
   "Vazgeçti",
+"Randevu Verilen",
+  "Randevu Gelen",
+  "Randevu Gelmeyen",
+
+  
 ];
 
-const LEAD_STAGES = ["Çok Uzak", "Çok Pahalı", "Diğer"];
+const LEAD_STAGES = ["Çok Uzak", "Çok Pahalı", "Şişli Uzak", "Diğer"];
 
 const LANGUAGES = ["TR", "EN", "DE", "FR", "AR"];
 
