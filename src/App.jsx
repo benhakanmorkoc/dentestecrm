@@ -779,10 +779,10 @@ export function App() {
                               <div className="stack">
                                 <div>{lead.name}</div>
                                 <div className="small muted">
-                                  Oluşturma: {formatDate(lead.createdAt)}
+                                  Oluşturma: {formatDate(lead.created_at)}
                                 </div>
                                 <div className="small muted">
-                                  Güncelleme: {formatDate(lead.updatedAt)}
+                                  Güncelleme: {formatDate(lead.updated_at)}
                                 </div>
                               </div>
                             </td>
