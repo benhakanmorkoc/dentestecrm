@@ -702,20 +702,7 @@ export function App() {
               >
                 Sıcak (Yeni / Cevapsız)
               </button>
-              <button
-                className={`chip ${
-                  filters.status === "Teklif Verildi" ? "chip-active" : ""
-                }`}
-                type="button"
-                onClick={() =>
-                  setFilters((prev) => ({
-                    ...prev,
-                    status: prev.status === "Teklif Verildi" ? "" : "Teklif Verildi",
-                  }))
-                }
-              >
-                Teklif Verilenler
-              </button>
+              
               <button
                 className={`chip ${filters.status === "Satıldı" ? "chip-active" : ""}`}
                 type="button"
@@ -741,6 +728,46 @@ export function App() {
                   })
                 }
               >
+            {/* Bugün Filtresi */}
+<button
+  className="chip"
+  type="button"
+  onClick={() => {
+    const d = new Date().toISOString().split('T')[0];
+    setFilters(prev => ({ ...prev, fromDate: d, toDate: d }));
+  }}
+>
+  Bugün
+</button>
+
+{/* Bu Ay Filtresi */}
+<button
+  className={`chip ${filters.fromDate === new Date().toISOString().split('T')[0] ? "chip-active" : ""}`}
+  type="button"
+  onClick={() => {
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    setFilters(prev => ({ ...prev, fromDate: firstDay, toDate: "" }));
+  }}
+>
+  Bu Ay
+</button>
+
+{/* Son 3 Ay Filtresi */}
+<button
+  className={`chip ${filters.fromDate === new Date().toISOString().split('T')[0] ? "chip-active" : ""}`}
+  type="button"
+  onClick={() => {
+    const now = new Date();
+    const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate()).toISOString().split('T')[0];
+    setFilters(prev => ({ ...prev, fromDate: threeMonthsAgo, toDate: "" }));
+  }}
+>
+  Son 3 Ay
+</button>
+
+
+                
                 Filtreleri Temizle
               </button>
                 </div>
