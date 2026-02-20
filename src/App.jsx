@@ -661,18 +661,18 @@ export function App() {
                     Son 3 Ay
                   </button>
 
-                  <button
-                    className={`chip ${filters.status === "Yeni" || filters.status === "Cevapsız" ? "chip-active" : ""}`}
-                    type="button"
-                    onClick={() =>
-                      setFilters((prev) => ({
-                        ...prev,
-                        status: prev.status === "Yeni" || prev.status === "Cevapsız" ? "" : "Yeni",
-                      }))
-                    }
-                  >
-                    Sıcak (Yeni / Cevapsız)
-                  </button>
+                      <button
+                        className={`chip ${filters.status === "Sıcak" ? "chip-active" : ""}`}
+                        type="button"
+                        onClick={() =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            status: prev.status === "Sıcak" ? "" : "Sıcak",
+                          }))
+                        }
+                      >
+                        Sıcak
+                      </button>
 
                   <button
                     className={`chip ${filters.status === "Satıldı" ? "chip-active" : ""}`}
