@@ -75,7 +75,7 @@ export function App() {
     [leads, selectedLeadId]
   );
 
-  // FİLTRELEME: Saat farkı ve gün sonu mantığı düzeltildi
+  // FİLTRELEME MANTIĞI: Saat farkı ve gün sonu düzeltmeleri eklendi
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
       if (filters.status && lead.status !== filters.status) return false;
@@ -119,7 +119,7 @@ export function App() {
     return date.toLocaleString("tr-TR");
   }
 
-  // YEREL SAAT YARDIMCI FONKSİYONU: Bugün ve Bu Ay butonlarının doğru çalışması için eklendi
+  // YEREL SAAT YARDIMCI FONKSİYONU: Hızlı filtre butonları (Bugün, Bu Ay vs.) için kullanılıyor
   function getLocalDateString(date) {
     const offset = date.getTimezoneOffset();
     const localDate = new Date(date.getTime() - offset * 60 * 1000);
@@ -145,14 +145,10 @@ export function App() {
       setUsers(usersData ?? []);
       setLeads(leadsData ?? []);
       setNotes(notesData ?? []);
-    } catch (e){
+    } catch (e) {
       console.error(e);
-      // e.code === '23505' PostgreSQL'de "Unique (Benzersizlik) Kuralı İhlali" anlamına gelir.
-      if (e.code === '23505') {
-        alert("Girilen telefon numarası sistemde zaten mevcut. Lütfen farklı bir numara giriniz.");
-      } else {
-        alert("Lead kaydedilirken bir hata oluştu.");
-      } finally {
+      alert("Veriler yüklenirken bir hata oluştu.");
+    } finally {
       setLoadingData(false);
     }
   }
@@ -266,7 +262,7 @@ export function App() {
     setIsLeadModalOpen(false);
   }
 
-  // UPSERT: Yeni kayıt eklerken notun da kaydedilmesi için mantık düzeltildi
+  // UPSERT: Telefon numarası benzersizlik (Unique) hatası ve Not ekleme mantığı
   async function upsertLead(event) {
     event.preventDefault();
     if (!currentProfile) return;
@@ -314,7 +310,12 @@ export function App() {
       resetLeadForm();
     } catch (e) {
       console.error(e);
-      alert("Lead kaydedilirken bir hata oluştu.");
+      // PostgreSQL Unique Violation Hatası Kontrolü (Aynı telefon numarası eklendiğinde uyarır)
+      if (e.code === '23505') {
+        alert("Girilen telefon numarası sistemde zaten mevcut. Lütfen farklı bir numara giriniz.");
+      } else {
+        alert("Lead kaydedilirken bir hata oluştu.");
+      }
     }
   }
 
@@ -665,18 +666,18 @@ export function App() {
                     Son 3 Ay
                   </button>
 
-                      <button
-                        className={`chip ${filters.status === "Sıcak" ? "chip-active" : ""}`}
-                        type="button"
-                        onClick={() =>
-                          setFilters((prev) => ({
-                            ...prev,
-                            status: prev.status === "Sıcak" ? "" : "Sıcak",
-                          }))
-                        }
-                      >
-                        Sıcak
-                      </button>
+                  <button
+                    className={`chip ${filters.status === "Sıcak" ? "chip-active" : ""}`}
+                    type="button"
+                    onClick={() =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        status: prev.status === "Sıcak" ? "" : "Sıcak",
+                      }))
+                    }
+                  >
+                    Sıcak
+                  </button>
 
                   <button
                     className={`chip ${filters.status === "Satıldı" ? "chip-active" : ""}`}
