@@ -145,10 +145,14 @@ export function App() {
       setUsers(usersData ?? []);
       setLeads(leadsData ?? []);
       setNotes(notesData ?? []);
-    } catch (e) {
+    } catch (e){
       console.error(e);
-      alert("Veriler yüklenirken bir hata oluştu.");
-    } finally {
+      // e.code === '23505' PostgreSQL'de "Unique (Benzersizlik) Kuralı İhlali" anlamına gelir.
+      if (e.code === '23505') {
+        alert("Girilen telefon numarası sistemde zaten mevcut. Lütfen farklı bir numara giriniz.");
+      } else {
+        alert("Lead kaydedilirken bir hata oluştu.");
+      } finally {
       setLoadingData(false);
     }
   }
