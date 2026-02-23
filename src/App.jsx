@@ -30,13 +30,14 @@ const LEAD_STAGES = ["Çok Uzak", "Çok Pahalı", "Şişli Uzak", "Diğer"];
 
 const LANGUAGES = ["TR", "EN", "DE", "FR", "AR"];
 
+// 1. İSTEK: Varsayılan değerler eklendi (TR ve Facebook Reklam)
 function createEmptyLead(ownerId) {
   return {
     id: null,
     name: "",
-    language: "",
+    language: "TR", // Öndeğer
     phone: "",
-    source: "",
+    source: "Facebook Reklam", // Öndeğer
     status: "Yeni",
     stage: "",
     owner_id: ownerId ?? "",
@@ -69,8 +70,9 @@ export function App() {
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   
-  // Yeni Kullanıcı State
+  // Yeni Kullanıcı & Düzenleme State'leri (2. İSTEK)
   const [newUser, setNewUser] = useState({ username: "", password: "", role: "sales" });
+  const [editingUserId, setEditingUserId] = useState(null); // Güncellenen kişinin ID'si
   
   const [loadingData, setLoadingData] = useState(false);
 
@@ -369,44 +371,64 @@ export function App() {
     setLeadForm((prev) => ({ ...prev, pendingNote: "" }));
   }
 
-  // --- KULLANICI (USER) İŞLEMLERİ ---
-  async function handleAddUser(event) {
+  // --- KULLANICI (USER) İŞLEMLERİ (2. İSTEK) ---
+  function openEditUser(u) {
+    setEditingUserId(u.id);
+    setNewUser({ username: u.username, password: "", role: u.role });
+    setIsUserModalOpen(true);
+  }
+
+  async function handleSaveUser(event) {
     event.preventDefault();
     if (!isAdmin) return;
 
-    if (!newUser.username.trim() || !newUser.password.trim()) {
-      alert("Kullanıcı adı ve şifre zorunludur.");
+    if (!newUser.username.trim()) {
+      alert("Kullanıcı adı zorunludur.");
       return;
     }
 
-    const email = `${newUser.username.trim()}@local.minicrm`;
     try {
-      // Supabase'e yeni yetki kaydını yapıyoruz
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password: newUser.password,
-      });
-
-      if (error) throw error;
-
-      // Profiller tablosuna manuel ekleme (Eğer veritabanı trigger'ınız yoksa garanti olsun diye)
-      if (data?.user) {
-        const { error: profileError } = await supabase.from("profiles").upsert({
-          id: data.user.id,
-          username: newUser.username.trim(),
-          role: newUser.role,
-          active: true,
+      if (editingUserId) {
+        // MEVCUT KULLANICIYI GÜNCELLEME (Supabase şifre güncellemesine frontend'den izin vermez, sadece username/role değişir)
+        const { error } = await supabase
+          .from("profiles")
+          .update({ username: newUser.username.trim(), role: newUser.role })
+          .eq("id", editingUserId);
+        if (error) throw error;
+        alert("Kullanıcı bilgileri güncellendi.");
+      } else {
+        // YENİ KULLANICI EKLEME
+        if (!newUser.password.trim()) {
+          alert("Yeni kullanıcı için şifre zorunludur.");
+          return;
+        }
+        const email = `${newUser.username.trim()}@local.minicrm`;
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password: newUser.password,
         });
-        if (profileError) throw profileError;
-      }
 
-      alert("Kullanıcı başarıyla oluşturuldu.");
+        if (error) throw error;
+
+        if (data?.user) {
+          const { error: profileError } = await supabase.from("profiles").upsert({
+            id: data.user.id,
+            username: newUser.username.trim(),
+            role: newUser.role,
+            active: true,
+          });
+          if (profileError) throw profileError;
+        }
+        alert("Kullanıcı başarıyla oluşturuldu.");
+      }
+      
       setIsUserModalOpen(false);
       setNewUser({ username: "", password: "", role: "sales" });
+      setEditingUserId(null);
       await loadAllData();
     } catch (e) {
       console.error(e);
-      alert("Kullanıcı eklenirken hata oluştu. " + (e.message || ""));
+      alert("Kullanıcı kaydedilirken hata oluştu. " + (e.message || ""));
     }
   }
 
@@ -433,7 +455,6 @@ export function App() {
     try {
       const { error } = await supabase.from("profiles").delete().eq("id", id);
       if (error) {
-        // Eğer veritabanında Lead veya Notlara bağlıysa 23503 Foreign Key hatası döner
         if (error.code === '23503') {
           alert("Bu kullanıcının sistemde üzerine kayıtlı Lead'leri olduğu için silinemez. Lütfen önce Lead'leri devredin veya kullanıcıyı 'Pasif Et' seçeneği ile dondurun.");
         } else {
@@ -599,7 +620,10 @@ export function App() {
                     className="btn btn-primary"
                     type="button"
                     onClick={() => {
-                      setLeadForm(createEmptyLead(currentProfile.id));
+                      // 1. İSTEK: Ekle butonuna basıldığında Satis1'i bul ve varsayılan yap
+                      const satis1User = users.find((u) => u.username === "Satis1");
+                      const defaultOwnerId = satis1User ? satis1User.id : currentProfile.id;
+                      setLeadForm(createEmptyLead(defaultOwnerId));
                       setSelectedLeadId(null);
                       setIsLeadModalOpen(true);
                     }}
@@ -867,7 +891,15 @@ export function App() {
                   <div className="card-subtitle">Admin kullanıcılar sisteme yeni kullanıcı ekleyebilir ve yönetebilir.</div>
                 </div>
                 {isAdmin && (
-                  <button className="btn btn-primary" type="button" onClick={() => setIsUserModalOpen(true)}>
+                  <button 
+                    className="btn btn-primary" 
+                    type="button" 
+                    onClick={() => {
+                      setEditingUserId(null);
+                      setNewUser({ username: "", password: "", role: "sales" });
+                      setIsUserModalOpen(true);
+                    }}
+                  >
                     Yeni Kullanıcı Ekle
                   </button>
                 )}
@@ -879,7 +911,7 @@ export function App() {
                 <div className="lead-table-wrapper">
                   <table className="lead-table">
                     <thead>
-                      <tr><th>Kullanıcı Adı</th><th>Rol</th><th>Durum</th><th>İşlemler</th></tr>
+                      <tr><th>Kullanıcı Adı</th><th>Profil</th><th>Durum</th><th></th></tr>
                     </thead>
                     <tbody>
                       {users.map((u) => (
@@ -890,6 +922,9 @@ export function App() {
                           <td>
                             {u.id !== currentProfile.id && (
                               <div className="stack-row">
+                                <button className="btn btn-ghost" type="button" onClick={() => openEditUser(u)}>
+                                  Güncelle
+                                </button>
                                 <button className="btn btn-ghost" type="button" onClick={() => toggleUserActive(u.id, u.active)}>
                                   {u.active === false ? "Aktif Et" : "Pasif Et"}
                                 </button>
@@ -910,16 +945,16 @@ export function App() {
         </div>
       </main>
 
-      {/* YENİ KULLANICI EKLEME MODALI */}
+      {/* YENİ KULLANICI EKLEME / GÜNCELLEME MODALI */}
       {isUserModalOpen && (
         <div className="modal-backdrop" onClick={() => setIsUserModalOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <div className="modal-title">Yeni Kullanıcı Oluştur</div>
+              <div className="modal-title">{editingUserId ? "Kullanıcıyı Güncelle" : "Yeni Kullanıcı Oluştur"}</div>
               <button className="btn btn-ghost" type="button" onClick={() => setIsUserModalOpen(false)}>Kapat</button>
             </div>
             <div className="modal-body">
-              <form onSubmit={handleAddUser}>
+              <form onSubmit={handleSaveUser}>
                 <div className="stack">
                   <div className="field">
                     <label className="field-label">Kullanıcı Adı <span className="muted">*</span></label>
@@ -932,16 +967,25 @@ export function App() {
                     <span className="field-helper">Giriş yaparken bu ismi kullanacaktır.</span>
                   </div>
                   
-                  <div className="field">
-                    <label className="field-label">Şifre <span className="muted">*</span></label>
-                    <input 
-                      className="input" 
-                      type="password"
-                      placeholder="En az 6 karakter" 
-                      value={newUser.password} 
-                      onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))} 
-                    />
-                  </div>
+                  {/* Sadece YENİ kayıt yaparken şifre girilebilir */}
+                  {!editingUserId && (
+                    <div className="field">
+                      <label className="field-label">Şifre <span className="muted">*</span></label>
+                      <input 
+                        className="input" 
+                        type="password"
+                        placeholder="En az 6 karakter" 
+                        value={newUser.password} 
+                        onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))} 
+                      />
+                    </div>
+                  )}
+
+                  {editingUserId && (
+                    <div className="small muted" style={{ marginTop: -10, marginBottom: 10 }}>
+                      * Güvenlik gereği kullanıcı şifreleri sadece Supabase Paneli üzerinden sıfırlanabilir. Buradan sadece Kullanıcı Adı ve Rol güncelleyebilirsiniz.
+                    </div>
+                  )}
 
                   <div className="field">
                     <label className="field-label">Rol</label>
@@ -957,7 +1001,9 @@ export function App() {
                 </div>
 
                 <div className="modal-footer" style={{ marginTop: 20 }}>
-                  <button className="btn btn-primary" type="submit">Kullanıcıyı Kaydet</button>
+                  <button className="btn btn-primary" type="submit">
+                    {editingUserId ? "Değişiklikleri Kaydet" : "Kullanıcıyı Oluştur"}
+                  </button>
                 </div>
               </form>
             </div>
