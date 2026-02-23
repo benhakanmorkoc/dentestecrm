@@ -30,14 +30,13 @@ const LEAD_STAGES = ["Çok Uzak", "Çok Pahalı", "Şişli Uzak", "Diğer"];
 
 const LANGUAGES = ["TR", "EN", "DE", "FR", "AR"];
 
-// 1. İSTEK: Varsayılan değerler eklendi (TR ve Facebook Reklam)
 function createEmptyLead(ownerId) {
   return {
     id: null,
     name: "",
-    language: "TR", // Öndeğer
+    language: "TR",
     phone: "",
-    source: "Facebook Reklam", // Öndeğer
+    source: "Facebook Reklam",
     status: "Yeni",
     stage: "",
     owner_id: ownerId ?? "",
@@ -66,13 +65,11 @@ export function App() {
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [activeView, setActiveView] = useState("leads");
   
-  // Modallar
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   
-  // Yeni Kullanıcı & Düzenleme State'leri (2. İSTEK)
   const [newUser, setNewUser] = useState({ username: "", password: "", role: "sales" });
-  const [editingUserId, setEditingUserId] = useState(null); // Güncellenen kişinin ID'si
+  const [editingUserId, setEditingUserId] = useState(null);
   
   const [loadingData, setLoadingData] = useState(false);
 
@@ -270,20 +267,25 @@ export function App() {
     event.preventDefault();
     if (!currentProfile) return;
 
-    if (!leadForm.name.trim() || !leadForm.phone.trim()) {
+    // GÜVENLİK: String'e çevirerek tip uyuşmazlığı çökmesini engelliyoruz
+    const safeName = String(leadForm.name || "").trim();
+    const safePhone = String(leadForm.phone || "").trim();
+    const safeNote = String(leadForm.pendingNote || "").trim();
+
+    if (!safeName || !safePhone) {
       alert("İsim ve Telefon zorunludur.");
       return;
     }
 
     const nowIso = new Date().toISOString();
     const base = {
-      name: leadForm.name.trim(),
-      phone: leadForm.phone.trim(),
+      name: safeName,
+      phone: safePhone,
       language: leadForm.language || null,
       source: leadForm.source || null,
       status: leadForm.status,
       stage: leadForm.stage || null,
-      quote: leadForm.quote || null,
+      quote: String(leadForm.quote || "").trim() || null,
       owner_id: leadForm.owner_id || currentProfile.id,
       updated_at: nowIso,
     };
@@ -305,18 +307,18 @@ export function App() {
         setSelectedLeadId(data.id);
       }
 
-      if (leadForm.pendingNote.trim()) {
-        await addNoteToLeadInternal(leadForm.pendingNote.trim(), savedId);
+      if (safeNote) {
+        await addNoteToLeadInternal(safeNote, savedId);
       }
 
       await loadAllData();
-      resetLeadForm();
+      resetLeadForm(); // Başarılıysa modalı kapatır
     } catch (e) {
-      console.error(e);
-      if (e.code === '23505') {
+      console.error("Kayıt Hatası:", e);
+      if (e?.code === '23505') {
         alert("Girilen telefon numarası sistemde zaten mevcut. Lütfen farklı bir numara giriniz.");
       } else {
-        alert("Lead kaydedilirken bir hata oluştu.");
+        alert("Lead kaydedilirken bir hata oluştu: " + (e?.message || "Bilinmeyen hata."));
       }
     }
   }
@@ -325,9 +327,9 @@ export function App() {
     setLeadForm({
       id: lead.id,
       name: lead.name ?? "",
-      language: lead.language ?? "",
+      language: lead.language || "TR",
       phone: lead.phone ?? "",
-      source: lead.source ?? "",
+      source: lead.source || "Facebook Reklam",
       status: lead.status ?? "Yeni",
       stage: lead.stage ?? "",
       owner_id: lead.owner_id ?? currentProfile?.id ?? "",
@@ -366,12 +368,13 @@ export function App() {
   }
 
   async function addNoteToLead() {
-    if (!leadForm.pendingNote.trim()) return;
-    await addNoteToLeadInternal(leadForm.pendingNote.trim(), selectedLeadId);
+    const safeNote = String(leadForm.pendingNote || "").trim();
+    if (!safeNote) return;
+    await addNoteToLeadInternal(safeNote, selectedLeadId);
     setLeadForm((prev) => ({ ...prev, pendingNote: "" }));
   }
 
-  // --- KULLANICI (USER) İŞLEMLERİ (2. İSTEK) ---
+  // --- KULLANICI (USER) İŞLEMLERİ ---
   function openEditUser(u) {
     setEditingUserId(u.id);
     setNewUser({ username: u.username, password: "", role: u.role });
@@ -382,30 +385,31 @@ export function App() {
     event.preventDefault();
     if (!isAdmin) return;
 
-    if (!newUser.username.trim()) {
+    const safeUsername = String(newUser.username || "").trim();
+    const safePassword = String(newUser.password || "").trim();
+
+    if (!safeUsername) {
       alert("Kullanıcı adı zorunludur.");
       return;
     }
 
     try {
       if (editingUserId) {
-        // MEVCUT KULLANICIYI GÜNCELLEME (Supabase şifre güncellemesine frontend'den izin vermez, sadece username/role değişir)
         const { error } = await supabase
           .from("profiles")
-          .update({ username: newUser.username.trim(), role: newUser.role })
+          .update({ username: safeUsername, role: newUser.role })
           .eq("id", editingUserId);
         if (error) throw error;
         alert("Kullanıcı bilgileri güncellendi.");
       } else {
-        // YENİ KULLANICI EKLEME
-        if (!newUser.password.trim()) {
+        if (!safePassword) {
           alert("Yeni kullanıcı için şifre zorunludur.");
           return;
         }
-        const email = `${newUser.username.trim()}@local.minicrm`;
+        const email = `${safeUsername}@local.minicrm`;
         const { data, error } = await supabase.auth.signUp({
           email,
-          password: newUser.password,
+          password: safePassword,
         });
 
         if (error) throw error;
@@ -413,7 +417,7 @@ export function App() {
         if (data?.user) {
           const { error: profileError } = await supabase.from("profiles").upsert({
             id: data.user.id,
-            username: newUser.username.trim(),
+            username: safeUsername,
             role: newUser.role,
             active: true,
           });
@@ -428,7 +432,7 @@ export function App() {
       await loadAllData();
     } catch (e) {
       console.error(e);
-      alert("Kullanıcı kaydedilirken hata oluştu. " + (e.message || ""));
+      alert("Kullanıcı kaydedilirken hata oluştu. " + (e?.message || ""));
     }
   }
 
@@ -620,7 +624,6 @@ export function App() {
                     className="btn btn-primary"
                     type="button"
                     onClick={() => {
-                      // 1. İSTEK: Ekle butonuna basıldığında Satis1'i bul ve varsayılan yap
                       const satis1User = users.find((u) => u.username === "Satis1");
                       const defaultOwnerId = satis1User ? satis1User.id : currentProfile.id;
                       setLeadForm(createEmptyLead(defaultOwnerId));
@@ -967,7 +970,6 @@ export function App() {
                     <span className="field-helper">Giriş yaparken bu ismi kullanacaktır.</span>
                   </div>
                   
-                  {/* Sadece YENİ kayıt yaparken şifre girilebilir */}
                   {!editingUserId && (
                     <div className="field">
                       <label className="field-label">Şifre <span className="muted">*</span></label>
@@ -1090,7 +1092,7 @@ export function App() {
 
                 <div className="modal-footer">
                   {selectedLead && (
-                    <button className="btn btn-ghost" type="button" onClick={addNoteToLead} disabled={!leadForm.pendingNote.trim()}>
+                    <button className="btn btn-ghost" type="button" onClick={addNoteToLead} disabled={!String(leadForm.pendingNote || "").trim()}>
                       Yalnızca Not Ekle
                     </button>
                   )}
