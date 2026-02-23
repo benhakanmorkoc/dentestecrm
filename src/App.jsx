@@ -65,12 +65,19 @@ export function App() {
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [activeView, setActiveView] = useState("leads");
   
+  // Modallar
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [isBulkOwnerModalOpen, setIsBulkOwnerModalOpen] = useState(false); // Toplu Devir Modalı
   
+  // Yeni Kullanıcı State
   const [newUser, setNewUser] = useState({ username: "", password: "", role: "sales" });
   const [editingUserId, setEditingUserId] = useState(null);
   
+  // Toplu Seçim State'leri
+  const [selectedLeadsForBulk, setSelectedLeadsForBulk] = useState([]);
+  const [bulkNewOwnerId, setBulkNewOwnerId] = useState("");
+
   const [loadingData, setLoadingData] = useState(false);
 
   const isAdmin = currentProfile?.role === "admin";
@@ -103,6 +110,11 @@ export function App() {
       return true;
     });
   }, [leads, filters]);
+
+  // Filtre değiştiğinde toplu seçimleri temizle (güvenlik için)
+  useEffect(() => {
+    setSelectedLeadsForBulk([]);
+  }, [filters]);
 
   const totalCount = leads.length;
 
@@ -250,6 +262,7 @@ export function App() {
     setNotes([]);
     setUsers([]);
     setSelectedLeadId(null);
+    setSelectedLeadsForBulk([]);
   }
 
   function handleLeadFieldChange(field, value) {
@@ -262,12 +275,56 @@ export function App() {
     setIsLeadModalOpen(false);
   }
 
+  // --- TOPLU İŞLEM FONKSİYONLARI ---
+  function toggleSelectAll() {
+    if (selectedLeadsForBulk.length === filteredLeads.length && filteredLeads.length > 0) {
+      setSelectedLeadsForBulk([]); // Hepsini kaldır
+    } else {
+      setSelectedLeadsForBulk(filteredLeads.map(lead => lead.id)); // Hepsini seç
+    }
+  }
+
+  function toggleSelectLead(id) {
+    setSelectedLeadsForBulk(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  }
+
+  async function handleBulkOwnerChange(event) {
+    event.preventDefault();
+    if (!bulkNewOwnerId) {
+      alert("Lütfen devredilecek yeni kullanıcıyı seçin.");
+      return;
+    }
+    
+    if (selectedLeadsForBulk.length === 0) return;
+
+    try {
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase
+        .from("leads")
+        .update({ owner_id: bulkNewOwnerId, updated_at: nowIso })
+        .in("id", selectedLeadsForBulk); // 'in' operatörü ile toplu güncelleme
+
+      if (error) throw error;
+
+      alert(`${selectedLeadsForBulk.length} kaydın sahibi başarıyla güncellendi.`);
+      setIsBulkOwnerModalOpen(false);
+      setSelectedLeadsForBulk([]); // Seçimleri temizle
+      setBulkNewOwnerId("");
+      await loadAllData(); // Tabloyu yenile
+    } catch (e) {
+      console.error(e);
+      alert("Toplu devir işlemi sırasında bir hata oluştu.");
+    }
+  }
+
+
   // --- LEAD İŞLEMLERİ ---
   async function upsertLead(event) {
     event.preventDefault();
     if (!currentProfile) return;
 
-    // GÜVENLİK: String'e çevirerek tip uyuşmazlığı çökmesini engelliyoruz
     const safeName = String(leadForm.name || "").trim();
     const safePhone = String(leadForm.phone || "").trim();
     const safeNote = String(leadForm.pendingNote || "").trim();
@@ -312,7 +369,7 @@ export function App() {
       }
 
       await loadAllData();
-      resetLeadForm(); // Başarılıysa modalı kapatır
+      resetLeadForm();
     } catch (e) {
       console.error("Kayıt Hatası:", e);
       if (e?.code === '23505') {
@@ -620,6 +677,17 @@ export function App() {
                   <div className="card-subtitle">Oluşturulma tarihi, durum, kaynak ve lead sahibi ile filtreleyin.</div>
                 </div>
                 <div className="stack-row">
+                  {/* TOPLU DEVİR BUTONU: Sadece 1 veya daha fazla kayıt seçiliyse görünür */}
+                  {selectedLeadsForBulk.length > 0 && (
+                    <button
+                      className="btn btn-primary"
+                      style={{ backgroundColor: '#4f46e5', borderColor: '#4f46e5' }}
+                      type="button"
+                      onClick={() => setIsBulkOwnerModalOpen(true)}
+                    >
+                      Seçilileri Devret ({selectedLeadsForBulk.length})
+                    </button>
+                  )}
                   <button
                     className="btn btn-primary"
                     type="button"
@@ -796,6 +864,16 @@ export function App() {
                 <table className="lead-table">
                   <thead>
                     <tr>
+                      {/* TOPLU SEÇİM BAŞLIĞI */}
+                      <th style={{ width: 40, textAlign: 'center' }}>
+                        <input 
+                          type="checkbox" 
+                          style={{ cursor: "pointer", width: 16, height: 16 }}
+                          title="Filtrelenen Tümünü Seç/Bırak"
+                          checked={filteredLeads.length > 0 && selectedLeadsForBulk.length === filteredLeads.length}
+                          onChange={toggleSelectAll}
+                        />
+                      </th>
                       <th>Lead</th>
                       <th>İletişim</th>
                       <th>Kaynak / Sahip</th>
@@ -808,7 +886,7 @@ export function App() {
                   <tbody>
                     {filteredLeads.length === 0 ? (
                       <tr>
-                        <td colSpan={7} style={{ textAlign: "center", padding: 16 }}>
+                        <td colSpan={8} style={{ textAlign: "center", padding: 16 }}>
                           {loadingData ? "Kayıtlar yükleniyor..." : "Henüz kayıt yok veya filtrelere uyan lead bulunamadı."}
                         </td>
                       </tr>
@@ -823,7 +901,16 @@ export function App() {
                             : "lead-pill-status-default";
 
                         return (
-                          <tr key={lead.id}>
+                          <tr key={lead.id} style={{ backgroundColor: selectedLeadsForBulk.includes(lead.id) ? "#f0fdf4" : "" }}>
+                            {/* TEKİL SEÇİM KUTUCUĞU */}
+                            <td style={{ textAlign: 'center' }}>
+                              <input 
+                                type="checkbox"
+                                style={{ cursor: "pointer", width: 16, height: 16 }}
+                                checked={selectedLeadsForBulk.includes(lead.id)}
+                                onChange={() => toggleSelectLead(lead.id)}
+                              />
+                            </td>
                             <td>
                               <div className="stack">
                                 <div>{lead.name}</div>
@@ -947,6 +1034,44 @@ export function App() {
           )}
         </div>
       </main>
+
+      {/* TOPLU DEVİR MODALI (YENİ) */}
+      {isBulkOwnerModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsBulkOwnerModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Toplu Sahip Değiştirme</div>
+              <button className="btn btn-ghost" type="button" onClick={() => setIsBulkOwnerModalOpen(false)}>Kapat</button>
+            </div>
+            <div className="modal-body">
+              <form onSubmit={handleBulkOwnerChange}>
+                <div className="stack">
+                  <div className="small muted" style={{ marginBottom: 15 }}>
+                    Seçili <strong>{selectedLeadsForBulk.length}</strong> adet kaydın sorumlusunu değiştirmek üzeresiniz.
+                  </div>
+                  <div className="field">
+                    <label className="field-label">Yeni Lead Sahibi <span className="muted">*</span></label>
+                    <select
+                      className="select"
+                      value={bulkNewOwnerId}
+                      onChange={(e) => setBulkNewOwnerId(e.target.value)}
+                      required
+                    >
+                      <option value="">Lütfen Bir Sahip Seçiniz</option>
+                      {users.map((user) => (
+                        <option key={user.id} value={user.id}>{user.username}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="modal-footer" style={{ marginTop: 20 }}>
+                  <button className="btn btn-primary" type="submit">Devret</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* YENİ KULLANICI EKLEME / GÜNCELLEME MODALI */}
       {isUserModalOpen && (
