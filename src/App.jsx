@@ -63,9 +63,15 @@ export function App() {
   });
 
   const [selectedLeadId, setSelectedLeadId] = useState(null);
-  const [newUser, setNewUser] = useState({ username: "", password: "", role: "sales" });
   const [activeView, setActiveView] = useState("leads");
+  
+  // Modallar
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  
+  // Yeni Kullanıcı State
+  const [newUser, setNewUser] = useState({ username: "", password: "", role: "sales" });
+  
   const [loadingData, setLoadingData] = useState(false);
 
   const isAdmin = currentProfile?.role === "admin";
@@ -75,7 +81,6 @@ export function App() {
     [leads, selectedLeadId]
   );
 
-  // FİLTRELEME MANTIĞI: Saat farkı ve gün sonu düzeltmeleri eklendi
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
       if (filters.status && lead.status !== filters.status) return false;
@@ -86,13 +91,13 @@ export function App() {
 
       if (filters.fromDate) {
         const from = new Date(filters.fromDate);
-        from.setHours(0, 0, 0, 0); // Günün başlangıcı
+        from.setHours(0, 0, 0, 0); 
         if (Number.isFinite(created.getTime()) && created < from) return false;
       }
 
       if (filters.toDate) {
         const to = new Date(filters.toDate);
-        to.setHours(23, 59, 59, 999); // Günün sonu
+        to.setHours(23, 59, 59, 999); 
         if (Number.isFinite(created.getTime()) && created > to) return false;
       }
 
@@ -119,7 +124,6 @@ export function App() {
     return date.toLocaleString("tr-TR");
   }
 
-  // YEREL SAAT YARDIMCI FONKSİYONU: Hızlı filtre butonları (Bugün, Bu Ay vs.) için kullanılıyor
   function getLocalDateString(date) {
     const offset = date.getTimezoneOffset();
     const localDate = new Date(date.getTime() - offset * 60 * 1000);
@@ -250,10 +254,7 @@ export function App() {
   }
 
   function handleLeadFieldChange(field, value) {
-    setLeadForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    setLeadForm((prev) => ({ ...prev, [field]: value }));
   }
 
   function resetLeadForm() {
@@ -262,7 +263,7 @@ export function App() {
     setIsLeadModalOpen(false);
   }
 
-  // UPSERT: Telefon numarası benzersizlik (Unique) hatası ve Not ekleme mantığı
+  // --- LEAD İŞLEMLERİ ---
   async function upsertLead(event) {
     event.preventDefault();
     if (!currentProfile) return;
@@ -310,7 +311,6 @@ export function App() {
       resetLeadForm();
     } catch (e) {
       console.error(e);
-      // PostgreSQL Unique Violation Hatası Kontrolü (Aynı telefon numarası eklendiğinde uyarır)
       if (e.code === '23505') {
         alert("Girilen telefon numarası sistemde zaten mevcut. Lütfen farklı bir numara giriniz.");
       } else {
@@ -337,18 +337,13 @@ export function App() {
   }
 
   async function deleteLead(id) {
-    if (!isAdmin) {
-      alert("Lead silme yetkisi sadece admin kullanıcılara aittir.");
-      return;
-    }
+    if (!isAdmin) return;
     if (!window.confirm("Bu lead kalıcı olarak silinecek. Emin misiniz?")) return;
     try {
       const { error } = await supabase.from("leads").delete().eq("id", id);
       if (error) throw error;
       await loadAllData();
-      if (selectedLeadId === id) {
-        resetLeadForm();
-      }
+      if (selectedLeadId === id) resetLeadForm();
     } catch (e) {
       console.error(e);
       alert("Lead silinirken bir hata oluştu.");
@@ -359,13 +354,7 @@ export function App() {
     const leadId = explicitLeadId || selectedLeadId || leadForm.id;
     if (!leadId || !currentProfile) return;
     try {
-      const { error } = await supabase.from("lead_notes").insert([
-        {
-          lead_id: leadId,
-          author_id: currentProfile.id,
-          text,
-        },
-      ]);
+      const { error } = await supabase.from("lead_notes").insert([{ lead_id: leadId, author_id: currentProfile.id, text }]);
       if (error) throw error;
       await loadAllData();
     } catch (e) {
@@ -378,6 +367,47 @@ export function App() {
     if (!leadForm.pendingNote.trim()) return;
     await addNoteToLeadInternal(leadForm.pendingNote.trim(), selectedLeadId);
     setLeadForm((prev) => ({ ...prev, pendingNote: "" }));
+  }
+
+  // --- KULLANICI (USER) İŞLEMLERİ ---
+  async function handleAddUser(event) {
+    event.preventDefault();
+    if (!isAdmin) return;
+
+    if (!newUser.username.trim() || !newUser.password.trim()) {
+      alert("Kullanıcı adı ve şifre zorunludur.");
+      return;
+    }
+
+    const email = `${newUser.username.trim()}@local.minicrm`;
+    try {
+      // Supabase'e yeni yetki kaydını yapıyoruz
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password: newUser.password,
+      });
+
+      if (error) throw error;
+
+      // Profiller tablosuna manuel ekleme (Eğer veritabanı trigger'ınız yoksa garanti olsun diye)
+      if (data?.user) {
+        const { error: profileError } = await supabase.from("profiles").upsert({
+          id: data.user.id,
+          username: newUser.username.trim(),
+          role: newUser.role,
+          active: true,
+        });
+        if (profileError) throw profileError;
+      }
+
+      alert("Kullanıcı başarıyla oluşturuldu.");
+      setIsUserModalOpen(false);
+      setNewUser({ username: "", password: "", role: "sales" });
+      await loadAllData();
+    } catch (e) {
+      console.error(e);
+      alert("Kullanıcı eklenirken hata oluştu. " + (e.message || ""));
+    }
   }
 
   async function toggleUserActive(id, currentActive) {
@@ -393,6 +423,29 @@ export function App() {
     } catch (e) {
       console.error(e);
       alert("Kullanıcı durumu güncellenirken hata oluştu.");
+    }
+  }
+
+  async function deleteProfile(id) {
+    if (!isAdmin) return;
+    if (!window.confirm("Bu kullanıcıyı silmek istediğinize emin misiniz?\n\nDİKKAT: Kullanıcıya ait 'Lead'ler varsa sistem silmenize izin vermeyecektir.")) return;
+
+    try {
+      const { error } = await supabase.from("profiles").delete().eq("id", id);
+      if (error) {
+        // Eğer veritabanında Lead veya Notlara bağlıysa 23503 Foreign Key hatası döner
+        if (error.code === '23503') {
+          alert("Bu kullanıcının sistemde üzerine kayıtlı Lead'leri olduğu için silinemez. Lütfen önce Lead'leri devredin veya kullanıcıyı 'Pasif Et' seçeneği ile dondurun.");
+        } else {
+          throw error;
+        }
+      } else {
+        await loadAllData();
+        alert("Kullanıcı başarıyla silindi.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Kullanıcı silinirken bir hata oluştu.");
     }
   }
 
@@ -810,9 +863,14 @@ export function App() {
             <section className="card">
               <div className="card-header">
                 <div>
-                  <div className="card-title">Kullanıcılar</div>
-                  <div className="card-subtitle">Admin kullanıcılar durumu yönetebilir.</div>
+                  <div className="card-title">Kullanıcı Yönetimi</div>
+                  <div className="card-subtitle">Admin kullanıcılar sisteme yeni kullanıcı ekleyebilir ve yönetebilir.</div>
                 </div>
+                {isAdmin && (
+                  <button className="btn btn-primary" type="button" onClick={() => setIsUserModalOpen(true)}>
+                    Yeni Kullanıcı Ekle
+                  </button>
+                )}
               </div>
 
               {!isAdmin ? (
@@ -821,7 +879,7 @@ export function App() {
                 <div className="lead-table-wrapper">
                   <table className="lead-table">
                     <thead>
-                      <tr><th>Kullanıcı Adı</th><th>Profil</th><th>Durum</th><th></th></tr>
+                      <tr><th>Kullanıcı Adı</th><th>Rol</th><th>Durum</th><th>İşlemler</th></tr>
                     </thead>
                     <tbody>
                       {users.map((u) => (
@@ -831,9 +889,14 @@ export function App() {
                           <td>{u.active === false ? "Pasif" : "Aktif"}</td>
                           <td>
                             {u.id !== currentProfile.id && (
-                              <button className="btn btn-ghost" type="button" onClick={() => toggleUserActive(u.id, u.active)}>
-                                {u.active === false ? "Aktif Et" : "Pasif Et"}
-                              </button>
+                              <div className="stack-row">
+                                <button className="btn btn-ghost" type="button" onClick={() => toggleUserActive(u.id, u.active)}>
+                                  {u.active === false ? "Aktif Et" : "Pasif Et"}
+                                </button>
+                                <button className="btn btn-ghost" style={{ color: "#dc2626" }} type="button" onClick={() => deleteProfile(u.id)}>
+                                  Sil
+                                </button>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -847,6 +910,62 @@ export function App() {
         </div>
       </main>
 
+      {/* YENİ KULLANICI EKLEME MODALI */}
+      {isUserModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsUserModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Yeni Kullanıcı Oluştur</div>
+              <button className="btn btn-ghost" type="button" onClick={() => setIsUserModalOpen(false)}>Kapat</button>
+            </div>
+            <div className="modal-body">
+              <form onSubmit={handleAddUser}>
+                <div className="stack">
+                  <div className="field">
+                    <label className="field-label">Kullanıcı Adı <span className="muted">*</span></label>
+                    <input 
+                      className="input" 
+                      placeholder="Örn: ahmet" 
+                      value={newUser.username} 
+                      onChange={(e) => setNewUser(prev => ({ ...prev, username: e.target.value }))} 
+                    />
+                    <span className="field-helper">Giriş yaparken bu ismi kullanacaktır.</span>
+                  </div>
+                  
+                  <div className="field">
+                    <label className="field-label">Şifre <span className="muted">*</span></label>
+                    <input 
+                      className="input" 
+                      type="password"
+                      placeholder="En az 6 karakter" 
+                      value={newUser.password} 
+                      onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))} 
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label className="field-label">Rol</label>
+                    <select 
+                      className="select" 
+                      value={newUser.role} 
+                      onChange={(e) => setNewUser(prev => ({ ...prev, role: e.target.value }))}
+                    >
+                      <option value="sales">Satış</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="modal-footer" style={{ marginTop: 20 }}>
+                  <button className="btn btn-primary" type="submit">Kullanıcıyı Kaydet</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LEAD EKLEME / GÜNCELLEME MODALI */}
       {isLeadModalOpen && (
         <div className="modal-backdrop" onClick={resetLeadForm}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
