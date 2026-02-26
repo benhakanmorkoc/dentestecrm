@@ -24,6 +24,7 @@ const LEAD_STATUSES = [
   "Randevu Verilen",
   "Randevu Gelen",
   "Randevu Gelmeyen",
+  "Yanlış Başvuru",
 ];
 
 const LEAD_STAGES = ["Çok Uzak", "Çok Pahalı", "Şişli Uzak", "Diğer"];
