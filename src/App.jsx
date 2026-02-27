@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
-
 const LEAD_SOURCES = [
   "Facebook Reklam",
   "Direk Arama",
@@ -268,10 +267,12 @@ export default function App() {
 
   function handleLeadFieldChange(field, value) {
     let processedValue = value;
-    // Eğer güncellenen alan telefonsa, anında boşlukları temizle
+    
+    // YENİ ve KESİN ÇÖZÜM: Telefona rakam ve + dışında HERHANGİ bir şey yazıldığında anında siler (boşluk, parantez, tire vs.)
     if (field === "phone") {
-      processedValue = processedValue.replace(/\s+/g, "");
+      processedValue = String(processedValue).replace(/[^\d+]/g, "");
     }
+    
     setLeadForm((prev) => ({ ...prev, [field]: processedValue }));
   }
 
@@ -332,8 +333,8 @@ export default function App() {
     if (!currentProfile) return;
 
     const safeName = String(leadForm.name || "").trim();
-    // Telefon numarasındaki tüm boşlukları kaydetmeden hemen önce GÜVENLİK için tekrar temizliyoruz
-    const safePhone = String(leadForm.phone || "").replace(/\s+/g, "").trim();
+    // KAYDETMEDEN ÖNCE DE YENİDEN KESİN TEMİZLİK (Rakam ve + harici her şeyi sil)
+    const safePhone = String(leadForm.phone || "").replace(/[^\d+]/g, "").trim();
     const safeNote = String(leadForm.pendingNote || "").trim();
 
     if (!safeName || !safePhone) {
