@@ -270,8 +270,7 @@ export function App() {
   function handleLeadFieldChange(field, value) {
     let finalValue = value;
     if (field === "phone") {
-      // Girilen veya yapıştırılan değerdeki tüm boşlukları temizler
-      finalValue = value.replace(/\s+/g, '');
+      finalValue = value.replace(/\s/g, '');
     }
     setLeadForm((prev) => ({ ...prev, [field]: finalValue }));
   }
