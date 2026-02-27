@@ -23,7 +23,6 @@ const LEAD_STATUSES = [
   "Düşünüp Geri Dönüş Sağlayacak",
   "İletişimde",
   "İstanbul Dışı",
-  "Vazgeçti",
   "Randevu Verilen",
   "Randevu Gelen",
   "Randevu Gelmeyen",
