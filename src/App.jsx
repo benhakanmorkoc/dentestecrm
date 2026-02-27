@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
+
 import { supabase } from "./supabaseClient";
+
+
+
 const LEAD_SOURCES = [
   "Facebook Reklam",
   "Direk Arama",
