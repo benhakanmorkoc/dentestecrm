@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "./supabaseClient";
 
+// --- SABİTLER ---
 const LEAD_SOURCES = [
   "Facebook Reklam",
   "Direk Arama",
@@ -46,13 +46,30 @@ function createEmptyLead(ownerId) {
   };
 }
 
-export function App() {
+// --- MOCK (SAHTE) VERİLER - Supabase yerine Canvas'ta test edebilmek için ---
+const INITIAL_USERS = [
+  { id: "admin-id", username: "admin", role: "admin", active: true },
+  { id: "satis-id", username: "Satis1", role: "sales", active: true }
+];
+
+const INITIAL_LEADS = [
+  { id: "lead-1", name: "Ahmet Yılmaz", language: "TR", phone: "05551234567", source: "Facebook Reklam", status: "Yeni", stage: "", owner_id: "satis-id", created_at: new Date().toISOString(), updated_at: new Date().toISOString(), quote: "" },
+  { id: "lead-2", name: "John Doe", language: "EN", phone: "+44 123 456 789", source: "Direk Arama", status: "Sıcak", stage: "Şişli Uzak", owner_id: "admin-id", created_at: new Date(Date.now() - 86400000).toISOString(), updated_at: new Date().toISOString(), quote: "1500$" },
+  { id: "lead-3", name: "Ayşe Kaya", language: "TR", phone: "05329876543", source: "Referans", status: "Satış", stage: "", owner_id: "admin-id", created_at: new Date(Date.now() - 172800000).toISOString(), updated_at: new Date().toISOString(), quote: "₺20.000" }
+];
+
+const INITIAL_NOTES = [
+  { id: "note-1", lead_id: "lead-2", author_id: "admin-id", text: "Müşteri İngiltere'den aradı, fiyat teklifi gönderildi.", created_at: new Date().toISOString() }
+];
+
+export default function App() {
   const [currentProfile, setCurrentProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  const [users, setUsers] = useState([]);
-  const [leads, setLeads] = useState([]);
-  const [notes, setNotes] = useState([]);
+  // Veritabanı State'leri (Supabase yerine yerel state kullanıyoruz)
+  const [users, setUsers] = useState(INITIAL_USERS);
+  const [leads, setLeads] = useState(INITIAL_LEADS);
+  const [notes, setNotes] = useState(INITIAL_NOTES);
 
   const [leadForm, setLeadForm] = useState(() => createEmptyLead(""));
   const [filters, setFilters] = useState({
@@ -69,7 +86,7 @@ export function App() {
   // Modallar
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-  const [isBulkOwnerModalOpen, setIsBulkOwnerModalOpen] = useState(false); // Toplu Devir Modalı
+  const [isBulkOwnerModalOpen, setIsBulkOwnerModalOpen] = useState(false);
   
   // Yeni Kullanıcı State
   const [newUser, setNewUser] = useState({ username: "", password: "", role: "sales" });
@@ -109,10 +126,10 @@ export function App() {
       }
 
       return true;
-    });
+    }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); // Yeniden eskiye sırala
   }, [leads, filters]);
 
-  // Filtre değiştiğinde toplu seçimleri temizle (güvenlik için)
+  // Filtre değiştiğinde toplu seçimleri temizle
   useEffect(() => {
     setSelectedLeadsForBulk([]);
   }, [filters]);
@@ -122,9 +139,15 @@ export function App() {
   const countByStatus = useMemo(() => {
     const result = {};
     for (const s of LEAD_STATUSES) result[s] = 0;
+    // "Satıldı" custom statüsünü de saymak için ekliyoruz, orijinal dizinde "Satış" var.
+    result["Satıldı"] = 0; 
+    result["Teklif Verildi"] = 0;
+
     for (const lead of leads) {
       if (result[lead.status] == null) result[lead.status] = 0;
       result[lead.status] += 1;
+      
+      if(lead.status === "Satış") result["Satıldı"] += 1; // Başlık "Satıldı" olduğu için mapping yaptık
     }
     return result;
   }, [leads]);
@@ -142,132 +165,68 @@ export function App() {
     return localDate.toISOString().split("T")[0];
   }
 
+  // Canvas versiyonunda veriler zaten state'te olduğu için simüle ediyoruz
   async function loadAllData() {
     setLoadingData(true);
-    try {
-      const [{ data: usersData }, { data: leadsData }, { data: notesData }] =
-        await Promise.all([
-          supabase.from("profiles").select("id, username, role, active").order("username"),
-          supabase
-            .from("leads")
-            .select("id, name, language, phone, source, status, stage, quote, created_at, updated_at, owner_id")
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("lead_notes")
-            .select("id, lead_id, author_id, text, created_at")
-            .order("created_at", { ascending: false }),
-        ]);
-
-      setUsers(usersData ?? []);
-      setLeads(leadsData ?? []);
-      setNotes(notesData ?? []);
-    } catch (e) {
-      console.error(e);
-      alert("Veriler yüklenirken bir hata oluştu.");
-    } finally {
+    setTimeout(() => {
       setLoadingData(false);
-    }
+    }, 300);
   }
 
   useEffect(() => {
-    async function initAuth() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setAuthLoading(false);
-        return;
-      }
-
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("id, username, role, active")
-        .eq("id", user.id)
-        .single();
-
-      if (error || !profile) {
-        await supabase.auth.signOut();
-        setAuthLoading(false);
-        return;
-      }
-
-      if (profile.active === false) {
-        await supabase.auth.signOut();
-        alert("Kullanıcı pasif durumdadır.");
-        setAuthLoading(false);
-        return;
-      }
-
-      setCurrentProfile(profile);
+    // Uygulama açılış simülasyonu
+    setTimeout(() => {
       setAuthLoading(false);
-      setActiveView("leads");
-      await loadAllData();
-    }
-
-    initAuth();
+    }, 800);
   }, []);
 
   async function handleLogin(event) {
     event.preventDefault();
     const username = event.target.username.value.trim();
-    const password = event.target.password.value;
-    if (!username || !password) return;
+    // const password = event.target.password.value; // Mock testte şifre sormuyoruz
+    if (!username) return;
 
     setAuthLoading(true);
-    try {
-      const email = `${username}@local.minicrm`;
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+    setTimeout(async () => {
+      try {
+        const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
 
-      if (error || !data.user) {
-        alert("Kullanıcı adı veya şifre hatalı.");
+        if (!user) {
+          alert("Kullanıcı adı bulunamadı. (Test için 'admin' yazabilirsiniz)");
+          setAuthLoading(false);
+          return;
+        }
+
+        if (user.active === false) {
+          alert("Kullanıcı pasif durumdadır.");
+          setAuthLoading(false);
+          return;
+        }
+
+        setCurrentProfile(user);
+        setActiveView("leads");
+        await loadAllData();
+      } catch (e) {
+        console.error(e);
+      } finally {
         setAuthLoading(false);
-        return;
       }
-
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("id, username, role, active")
-        .eq("id", data.user.id)
-        .single();
-
-      if (profileError || !profile) {
-        alert("Profil bulunamadı.");
-        await supabase.auth.signOut();
-        setAuthLoading(false);
-        return;
-      }
-
-      if (profile.active === false) {
-        alert("Kullanıcı pasif durumdadır.");
-        await supabase.auth.signOut();
-        setAuthLoading(false);
-        return;
-      }
-
-      setCurrentProfile(profile);
-      setActiveView("leads");
-      await loadAllData();
-    } catch (e) {
-      console.error(e);
-      alert("Giriş yapılırken hata oluştu.");
-    } finally {
-      setAuthLoading(false);
-    }
+    }, 600);
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut();
     setCurrentProfile(null);
-    setLeads([]);
-    setNotes([]);
-    setUsers([]);
     setSelectedLeadId(null);
     setSelectedLeadsForBulk([]);
   }
 
   function handleLeadFieldChange(field, value) {
-    setLeadForm((prev) => ({ ...prev, [field]: value }));
+    let processedValue = value;
+    // Eğer güncellenen alan telefonsa, tüm boşlukları temizle
+    if (field === "phone") {
+      processedValue = processedValue.replace(/\s+/g, "");
+    }
+    setLeadForm((prev) => ({ ...prev, [field]: processedValue }));
   }
 
   function resetLeadForm() {
@@ -279,9 +238,9 @@ export function App() {
   // --- TOPLU İŞLEM FONKSİYONLARI ---
   function toggleSelectAll() {
     if (selectedLeadsForBulk.length === filteredLeads.length && filteredLeads.length > 0) {
-      setSelectedLeadsForBulk([]); // Hepsini kaldır
+      setSelectedLeadsForBulk([]); 
     } else {
-      setSelectedLeadsForBulk(filteredLeads.map(lead => lead.id)); // Hepsini seç
+      setSelectedLeadsForBulk(filteredLeads.map(lead => lead.id)); 
     }
   }
 
@@ -297,23 +256,23 @@ export function App() {
       alert("Lütfen devredilecek yeni kullanıcıyı seçin.");
       return;
     }
-    
     if (selectedLeadsForBulk.length === 0) return;
 
     try {
       const nowIso = new Date().toISOString();
-      const { error } = await supabase
-        .from("leads")
-        .update({ owner_id: bulkNewOwnerId, updated_at: nowIso })
-        .in("id", selectedLeadsForBulk); // 'in' operatörü ile toplu güncelleme
-
-      if (error) throw error;
+      
+      // Mock veritabanı güncelleme
+      setLeads(prevLeads => prevLeads.map(lead => {
+        if (selectedLeadsForBulk.includes(lead.id)) {
+          return { ...lead, owner_id: bulkNewOwnerId, updated_at: nowIso };
+        }
+        return lead;
+      }));
 
       alert(`${selectedLeadsForBulk.length} kaydın sahibi başarıyla güncellendi.`);
       setIsBulkOwnerModalOpen(false);
-      setSelectedLeadsForBulk([]); // Seçimleri temizle
+      setSelectedLeadsForBulk([]); 
       setBulkNewOwnerId("");
-      await loadAllData(); // Tabloyu yenile
     } catch (e) {
       console.error(e);
       alert("Toplu devir işlemi sırasında bir hata oluştu.");
@@ -335,6 +294,13 @@ export function App() {
       return;
     }
 
+    // Telefon benzersizlik kontrolü mock
+    const isPhoneExists = leads.some(l => l.phone === safePhone && l.id !== leadForm.id);
+    if(isPhoneExists) {
+        alert("Girilen telefon numarası sistemde zaten mevcut. Lütfen farklı bir numara giriniz.");
+        return;
+    }
+
     const nowIso = new Date().toISOString();
     const base = {
       name: safeName,
@@ -352,32 +318,24 @@ export function App() {
       let savedId = leadForm.id;
 
       if (leadForm.id) {
-        const { error } = await supabase.from("leads").update(base).eq("id", leadForm.id);
-        if (error) throw error;
+        // Mock Güncelleme
+        setLeads(prev => prev.map(l => l.id === leadForm.id ? { ...l, ...base } : l));
       } else {
-        const { data, error } = await supabase
-          .from("leads")
-          .insert([{ ...base, created_at: nowIso }])
-          .select()
-          .single();
-        if (error) throw error;
-        savedId = data.id;
-        setSelectedLeadId(data.id);
+        // Mock Ekleme
+        savedId = `lead-${Date.now()}`;
+        const newLead = { ...base, id: savedId, created_at: nowIso };
+        setLeads(prev => [newLead, ...prev]);
+        setSelectedLeadId(savedId);
       }
 
       if (safeNote) {
         await addNoteToLeadInternal(safeNote, savedId);
       }
 
-      await loadAllData();
       resetLeadForm();
     } catch (e) {
       console.error("Kayıt Hatası:", e);
-      if (e?.code === '23505') {
-        alert("Girilen telefon numarası sistemde zaten mevcut. Lütfen farklı bir numara giriniz.");
-      } else {
-        alert("Lead kaydedilirken bir hata oluştu: " + (e?.message || "Bilinmeyen hata."));
-      }
+      alert("Lead kaydedilirken bir hata oluştu: " + (e?.message || "Bilinmeyen hata."));
     }
   }
 
@@ -402,9 +360,8 @@ export function App() {
     if (!isAdmin) return;
     if (!window.confirm("Bu lead kalıcı olarak silinecek. Emin misiniz?")) return;
     try {
-      const { error } = await supabase.from("leads").delete().eq("id", id);
-      if (error) throw error;
-      await loadAllData();
+      setLeads(prev => prev.filter(l => l.id !== id));
+      setNotes(prev => prev.filter(n => n.lead_id !== id)); // İlişkili notları sil
       if (selectedLeadId === id) resetLeadForm();
     } catch (e) {
       console.error(e);
@@ -416,9 +373,14 @@ export function App() {
     const leadId = explicitLeadId || selectedLeadId || leadForm.id;
     if (!leadId || !currentProfile) return;
     try {
-      const { error } = await supabase.from("lead_notes").insert([{ lead_id: leadId, author_id: currentProfile.id, text }]);
-      if (error) throw error;
-      await loadAllData();
+      const newNote = {
+          id: `note-${Date.now()}`,
+          lead_id: leadId,
+          author_id: currentProfile.id,
+          text: text,
+          created_at: new Date().toISOString()
+      };
+      setNotes(prev => [newNote, ...prev]);
     } catch (e) {
       console.error(e);
       alert("Not eklenirken hata oluştu.");
@@ -453,41 +415,33 @@ export function App() {
 
     try {
       if (editingUserId) {
-        const { error } = await supabase
-          .from("profiles")
-          .update({ username: safeUsername, role: newUser.role })
-          .eq("id", editingUserId);
-        if (error) throw error;
+        setUsers(prev => prev.map(u => u.id === editingUserId ? { ...u, username: safeUsername, role: newUser.role } : u));
         alert("Kullanıcı bilgileri güncellendi.");
       } else {
         if (!safePassword) {
           alert("Yeni kullanıcı için şifre zorunludur.");
           return;
         }
-        const email = `${safeUsername}@local.minicrm`;
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password: safePassword,
-        });
+        
+        const isExists = users.some(u => u.username === safeUsername);
+        if(isExists) {
+            alert("Bu kullanıcı adı zaten mevcut.");
+            return;
+        }
 
-        if (error) throw error;
-
-        if (data?.user) {
-          const { error: profileError } = await supabase.from("profiles").upsert({
-            id: data.user.id,
+        const newCreatedUser = {
+            id: `user-${Date.now()}`,
             username: safeUsername,
             role: newUser.role,
-            active: true,
-          });
-          if (profileError) throw profileError;
-        }
+            active: true
+        };
+        setUsers(prev => [...prev, newCreatedUser]);
         alert("Kullanıcı başarıyla oluşturuldu.");
       }
       
       setIsUserModalOpen(false);
       setNewUser({ username: "", password: "", role: "sales" });
       setEditingUserId(null);
-      await loadAllData();
     } catch (e) {
       console.error(e);
       alert("Kullanıcı kaydedilirken hata oluştu. " + (e?.message || ""));
@@ -497,12 +451,9 @@ export function App() {
   async function toggleUserActive(id, currentActive) {
     if (!isAdmin) return;
     try {
-      const { error } = await supabase.from("profiles").update({ active: !currentActive }).eq("id", id);
-      if (error) throw error;
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, active: !currentActive } : u));
       if (id === currentProfile.id && currentActive === true) {
         await handleLogout();
-      } else {
-        await loadAllData();
       }
     } catch (e) {
       console.error(e);
@@ -515,17 +466,14 @@ export function App() {
     if (!window.confirm("Bu kullanıcıyı silmek istediğinize emin misiniz?\n\nDİKKAT: Kullanıcıya ait 'Lead'ler varsa sistem silmenize izin vermeyecektir.")) return;
 
     try {
-      const { error } = await supabase.from("profiles").delete().eq("id", id);
-      if (error) {
-        if (error.code === '23503') {
-          alert("Bu kullanıcının sistemde üzerine kayıtlı Lead'leri olduğu için silinemez. Lütfen önce Lead'leri devredin veya kullanıcıyı 'Pasif Et' seçeneği ile dondurun.");
-        } else {
-          throw error;
-        }
-      } else {
-        await loadAllData();
-        alert("Kullanıcı başarıyla silindi.");
+      const hasLeads = leads.some(l => l.owner_id === id);
+      if(hasLeads) {
+        alert("Bu kullanıcının sistemde üzerine kayıtlı Lead'leri olduğu için silinemez. Lütfen önce Lead'leri devredin veya kullanıcıyı 'Pasif Et' seçeneği ile dondurun.");
+        return;
       }
+
+      setUsers(prev => prev.filter(u => u.id !== id));
+      alert("Kullanıcı başarıyla silindi.");
     } catch (e) {
       console.error(e);
       alert("Kullanıcı silinirken bir hata oluştu.");
@@ -585,12 +533,118 @@ export function App() {
     URL.revokeObjectURL(url);
   }
 
+  // --- TASARIM İÇİN CSS EKLENTİSİ ---
+  // Uygulamanın düzgün görünmesi için Canvas ortamına CSS basıyoruz.
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.innerHTML = `
+      :root {
+        --primary: #4f46e5;
+        --primary-hover: #4338ca;
+        --bg-color: #f3f4f6;
+        --surface: #ffffff;
+        --text-main: #111827;
+        --text-muted: #6b7280;
+        --border-color: #e5e7eb;
+        --danger: #dc2626;
+        --success: #16a34a;
+      }
+      body {
+        margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        background-color: var(--bg-color); color: var(--text-main);
+      }
+      .app-shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+      .app-header { background: var(--surface); border-bottom: 1px solid var(--border-color); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05); z-index: 10;}
+      .app-header-title { font-size: 1.25rem; font-weight: 600; color: var(--primary); margin-bottom: 4px; }
+      .app-header-subtitle { font-size: 0.875rem; color: var(--text-muted); }
+      .app-main { display: flex; flex: 1; overflow: hidden; }
+      .sidebar { width: 70px; background: var(--surface); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; align-items: center; padding: 20px 0; gap: 16px; z-index: 5; }
+      .sidebar-title { font-size: 0.75rem; font-weight: bold; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 1px; }
+      .nav-button { background: transparent; border: none; width: 44px; height: 44px; border-radius: 8px; font-size: 1.25rem; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-muted); transition: all 0.2s; }
+      .nav-button:hover { background: var(--bg-color); color: var(--primary); }
+      .nav-button-active { background: #e0e7ff; color: var(--primary); }
+      .nav-button-logout { margin-top: auto; color: var(--danger); }
+      .nav-button-logout:hover { background: #fee2e2; color: var(--danger); }
+      
+      .content { flex: 1; overflow-y: auto; padding: 24px; }
+      .card { background: var(--surface); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 24px; margin-bottom: 24px; }
+      .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
+      .card-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 4px; }
+      .card-subtitle { font-size: 0.875rem; color: var(--text-muted); }
+      
+      .stack { display: flex; flex-direction: column; gap: 16px; }
+      .stack-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .filters-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+      .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+      
+      .field { display: flex; flex-direction: column; gap: 6px; }
+      .field-label { font-size: 0.875rem; font-weight: 500; color: var(--text-main); }
+      .field-helper { font-size: 0.75rem; color: var(--text-muted); }
+      .input, .select, .textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.875rem; background: #fff; color: var(--text-main); outline: none; transition: border-color 0.2s; box-sizing: border-box; }
+      .input:focus, .select:focus, .textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
+      .textarea { min-height: 80px; resize: vertical; }
+      
+      .btn { padding: 10px 16px; border-radius: 6px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border: 1px solid transparent; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; }
+      .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+      .btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
+      .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+      .btn-ghost { background: transparent; border-color: var(--border-color); color: var(--text-main); }
+      .btn-ghost:hover:not(:disabled) { background: var(--bg-color); }
+      
+      .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; background: #e0e7ff; color: var(--primary); }
+      
+      .chips-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; margin-bottom: 8px; }
+      .chip { padding: 6px 12px; border-radius: 9999px; border: 1px solid var(--border-color); background: var(--surface); font-size: 0.75rem; cursor: pointer; color: var(--text-main); transition: all 0.2s; }
+      .chip:hover { background: var(--bg-color); }
+      .chip-active { background: var(--primary); color: white; border-color: var(--primary); }
+      .chip-active:hover { background: var(--primary-hover); }
+      
+      .lead-table-wrapper { width: 100%; overflow-x: auto; margin-top: 16px; border: 1px solid var(--border-color); border-radius: 8px; }
+      .lead-table { width: 100%; border-collapse: collapse; min-width: 800px; }
+      .lead-table th { background: #f9fafb; padding: 12px 16px; text-align: left; font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid var(--border-color); }
+      .lead-table td { padding: 16px; border-bottom: 1px solid var(--border-color); font-size: 0.875rem; vertical-align: top; }
+      .lead-table tr:last-child td { border-bottom: none; }
+      .lead-table tr:hover { background: #f9fafb; }
+      
+      .lead-pill { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 500; }
+      .lead-pill-status-default { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+      .lead-pill-status-success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+      .lead-pill-status-danger { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+      
+      .timeline { display: flex; flex-direction: column; gap: 8px; max-height: 120px; overflow-y: auto; padding-right: 8px; }
+      .timeline-item { border-left: 2px solid var(--border-color); padding-left: 10px; position: relative; }
+      .timeline-item::before { content: ''; position: absolute; left: -5px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--border-color); }
+      .timeline-date { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 2px; }
+      .timeline-text { font-size: 0.8rem; line-height: 1.4; }
+      
+      .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; backdrop-filter: blur(2px); }
+      .modal { background: var(--surface); border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+      .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+      .modal-title { font-size: 1.25rem; font-weight: 600; }
+      .modal-body { padding: 24px; overflow-y: auto; flex: 1; }
+      .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 12px; background: #f9fafb; border-radius: 0 0 12px 12px; }
+      
+      .login-shell { display: flex; align-items: center; justify-content: center; height: 100vh; background: #e0e7ff; }
+      .login-card { background: var(--surface); padding: 40px; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }
+      .login-title { font-size: 1.5rem; font-weight: bold; color: var(--primary); margin-bottom: 8px; }
+      .login-subtitle { font-size: 0.875rem; color: var(--text-muted); margin-bottom: 32px; }
+      .login-card .field { text-align: left; }
+      .login-card .button-row { margin-top: 24px; }
+      .login-card .btn { width: 100%; }
+      
+      .small { font-size: 0.875rem; }
+      .muted { color: var(--text-muted); }
+    `;
+    document.head.appendChild(style);
+    return () => document.head.removeChild(style);
+  }, []);
+
   if (authLoading) {
     return (
       <div className="login-shell">
         <div className="login-card">
           <div className="login-title">CRM - DentEste</div>
-          <div className="login-subtitle">Yükleniyor...</div>
+          <div className="login-subtitle">Yükleniyor... Lütfen bekleyin.</div>
         </div>
       </div>
     );
@@ -601,15 +655,15 @@ export function App() {
       <div className="login-shell">
         <div className="login-card">
           <div className="login-title">CRM - DentEste</div>
-          <div className="login-subtitle">Lütfen kullanıcı adınız ve şifreniz ile giriş yapın.</div>
+          <div className="login-subtitle">Test için kullanıcı adı: <strong>admin</strong><br/>(Şifre alanına rastgele bir şey yazabilirsiniz)</div>
           <form onSubmit={handleLogin} className="stack">
             <div className="field">
               <label className="field-label">Kullanıcı Adı</label>
-              <input name="username" className="input" placeholder="Kullanıcı Adı" autoComplete="username" />
+              <input name="username" className="input" placeholder="admin" autoComplete="username" defaultValue="admin" required />
             </div>
             <div className="field">
               <label className="field-label">Şifre</label>
-              <input name="password" type="password" className="input" placeholder="Şifre" autoComplete="current-password" />
+              <input name="password" type="password" className="input" placeholder="****" autoComplete="current-password" />
             </div>
             <div className="button-row">
               <button className="btn btn-primary" type="submit" disabled={authLoading}>
@@ -631,22 +685,22 @@ export function App() {
             Lead kaydı, filtreleme ve Excel&apos;e aktarım için hafif CRM.
           </div>
         </div>
-        <div className="stack" style={{ alignItems: "flex-end" }}>
+        <div className="stack" style={{ alignItems: "flex-end", gap: '8px' }}>
           <div className="stack-row">
             <span className="badge">Toplam Lead: {totalCount}</span>
             <span className="badge">Yeni: {countByStatus["Yeni"] ?? 0}</span>
-            <span className="badge">Teklif Verildi: {countByStatus["Teklif Verildi"] ?? 0}</span>
-            <span className="badge">Satıldı: {countByStatus["Satıldı"] ?? 0}</span>
+            <span className="badge">Sıcak: {countByStatus["Sıcak"] ?? 0}</span>
+            <span className="badge" style={{background: '#dcfce7', color: '#166534'}}>Satıldı: {countByStatus["Satıldı"] ?? 0}</span>
           </div>
-          <div className="small muted">
-            Oturum: {currentProfile.username} ({currentProfile.role === "admin" ? "Admin" : "Satış"})
+          <div className="small muted" style={{ fontWeight: 500 }}>
+            👤 Oturum: {currentProfile.username} ({currentProfile.role === "admin" ? "Admin" : "Satış"})
           </div>
         </div>
       </header>
 
       <main className="app-main">
         <aside className="sidebar">
-          <div className="sidebar-title">CRM</div>
+          <div className="sidebar-title">MENÜ</div>
           <button
             className={`nav-button ${activeView === "leads" ? "nav-button-active" : ""}`}
             type="button"
@@ -660,9 +714,10 @@ export function App() {
             type="button"
             onClick={() => isAdmin && setActiveView("users")}
             disabled={!isAdmin}
+            style={{ opacity: !isAdmin ? 0.3 : 1 }}
             title={isAdmin ? "Kullanıcı Tanımları" : "Sadece admin görebilir"}
           >
-            <span>👤</span>
+            <span>👥</span>
           </button>
           <button className="nav-button nav-button-logout" type="button" onClick={handleLogout} title="Sistemden Çıkış">
             <span>⏻</span>
@@ -682,7 +737,6 @@ export function App() {
                   {selectedLeadsForBulk.length > 0 && (
                     <button
                       className="btn btn-primary"
-                      style={{ backgroundColor: '#4f46e5', borderColor: '#4f46e5' }}
                       type="button"
                       onClick={() => setIsBulkOwnerModalOpen(true)}
                     >
@@ -700,10 +754,10 @@ export function App() {
                       setIsLeadModalOpen(true);
                     }}
                   >
-                    Ekle
+                    + Yeni Lead Ekle
                   </button>
                   <button className="btn btn-ghost" type="button" onClick={exportToCsv}>
-                    Excel (CSV) İndir
+                    📥 Excel (CSV)
                   </button>
                 </div>
               </div>
@@ -753,19 +807,22 @@ export function App() {
                   </div>
 
                   <div className="field">
-                    <label className="field-label">Tarih Aralığı (Oluşturulma)</label>
+                    <label className="field-label">Oluşturulma Tarihi Aralığı</label>
                     <div className="stack-row">
                       <input
                         className="input"
                         type="date"
                         value={filters.fromDate}
                         onChange={(e) => setFilters((prev) => ({ ...prev, fromDate: e.target.value }))}
+                        title="Başlangıç Tarihi"
                       />
+                      <span className="muted">-</span>
                       <input
                         className="input"
                         type="date"
                         value={filters.toDate}
                         onChange={(e) => setFilters((prev) => ({ ...prev, toDate: e.target.value }))}
+                        title="Bitiş Tarihi"
                       />
                     </div>
                   </div>
@@ -825,25 +882,26 @@ export function App() {
                       }))
                     }
                   >
-                    Sıcak
+                    🔥 Sıcak
                   </button>
 
                   <button
-                    className={`chip ${filters.status === "Satıldı" ? "chip-active" : ""}`}
+                    className={`chip ${filters.status === "Satış" ? "chip-active" : ""}`}
                     type="button"
                     onClick={() =>
                       setFilters((prev) => ({
                         ...prev,
-                        status: prev.status === "Satıldı" ? "" : "Satıldı",
+                        status: prev.status === "Satış" ? "" : "Satış",
                       }))
                     }
                   >
-                    Satılanlar
+                    💰 Satılanlar
                   </button>
 
                   <button
                     className="chip"
                     type="button"
+                    style={{ marginLeft: 'auto', border: 'none', textDecoration: 'underline' }}
                     onClick={() =>
                       setFilters({
                         status: "",
@@ -858,7 +916,7 @@ export function App() {
                   </button>
                 </div>
 
-                <div className="small muted">Gösterilen kayıt: {filteredLeads.length} / {totalCount}</div>
+                <div className="small muted">Gösterilen kayıt: <strong>{filteredLeads.length}</strong> / {totalCount}</div>
               </div>
 
               <div className="lead-table-wrapper">
@@ -879,15 +937,15 @@ export function App() {
                       <th>İletişim</th>
                       <th>Kaynak / Sahip</th>
                       <th>Durum</th>
-                      <th>Tarihçeler</th>
+                      <th style={{ width: '25%' }}>Tarihçeler</th>
                       <th>Teklif</th>
-                      <th></th>
+                      <th style={{ textAlign: 'right' }}>İşlemler</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredLeads.length === 0 ? (
                       <tr>
-                        <td colSpan={8} style={{ textAlign: "center", padding: 16 }}>
+                        <td colSpan={8} style={{ textAlign: "center", padding: 32, color: "var(--text-muted)" }}>
                           {loadingData ? "Kayıtlar yükleniyor..." : "Henüz kayıt yok veya filtrelere uyan lead bulunamadı."}
                         </td>
                       </tr>
@@ -895,14 +953,14 @@ export function App() {
                       filteredLeads.map((lead) => {
                         const ownerName = users.find((u) => u.id === lead.owner_id)?.username ?? "-";
                         const statusClass =
-                          lead.status === "Satıldı"
+                          lead.status === "Satış"
                             ? "lead-pill-status-success"
-                            : lead.status === "Vazgeçti"
+                            : lead.status === "Vazgeçti" || lead.status === "İptal" || lead.status === "Yanlış Başvuru"
                             ? "lead-pill-status-danger"
                             : "lead-pill-status-default";
 
                         return (
-                          <tr key={lead.id} style={{ backgroundColor: selectedLeadsForBulk.includes(lead.id) ? "#f0fdf4" : "" }}>
+                          <tr key={lead.id} style={{ backgroundColor: selectedLeadsForBulk.includes(lead.id) ? "#eef2ff" : "" }}>
                             {/* TEKİL SEÇİM KUTUCUĞU */}
                             <td style={{ textAlign: 'center' }}>
                               <input 
@@ -913,26 +971,26 @@ export function App() {
                               />
                             </td>
                             <td>
-                              <div className="stack">
-                                <div>{lead.name}</div>
+                              <div className="stack" style={{ gap: '4px' }}>
+                                <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{lead.name}</div>
                                 <div className="small muted">Oluşturma: {formatDate(lead.created_at)}</div>
                                 <div className="small muted">Güncelleme: {formatDate(lead.updated_at)}</div>
                               </div>
                             </td>
                             <td>
-                              <div className="stack">
+                              <div className="stack" style={{ gap: '4px' }}>
                                 <div>{lead.phone}</div>
-                                <div className="small muted">{lead.language}</div>
+                                <div className="badge" style={{ display: 'inline-block', width: 'fit-content' }}>{lead.language}</div>
                               </div>
                             </td>
                             <td>
-                              <div className="stack">
+                              <div className="stack" style={{ gap: '4px' }}>
                                 <div className="small muted">{lead.source || "-"}</div>
-                                <div className="small">{ownerName}</div>
+                                <div style={{ fontWeight: 500 }}>{ownerName}</div>
                               </div>
                             </td>
                             <td>
-                              <div className="stack">
+                              <div className="stack" style={{ gap: '6px' }}>
                                 <span className={`lead-pill ${statusClass}`}>{lead.status}</span>
                                 {lead.stage && <span className="lead-pill lead-pill-status-default">{lead.stage}</span>}
                               </div>
@@ -946,6 +1004,7 @@ export function App() {
                                 ) : (
                                   notes
                                     .filter((note) => note.lead_id === lead.id)
+                                    .sort((a,b) => new Date(b.created_at) - new Date(a.created_at)) // Notları yeniden eskiye sırala
                                     .map((note) => (
                                       <div key={note.id} className="timeline-item">
                                         <div className="timeline-date">{formatDate(note.created_at)}</div>
@@ -955,12 +1014,12 @@ export function App() {
                                 )}
                               </div>
                             </td>
-                            <td><div className="small">{lead.quote || "-"}</div></td>
+                            <td><div style={{ fontWeight: 600 }}>{lead.quote || "-"}</div></td>
                             <td>
-                              <div className="stack-row">
-                                <button className="btn btn-ghost" type="button" onClick={() => editLead(lead)}>Düzenle</button>
+                              <div className="stack-row" style={{ justifyContent: 'flex-end', gap: '4px' }}>
+                                <button className="btn btn-ghost" style={{ padding: '6px 10px' }} type="button" onClick={() => editLead(lead)}>Düzenle</button>
                                 {isAdmin && (
-                                  <button className="btn btn-ghost" type="button" onClick={() => deleteLead(lead.id)}>Sil</button>
+                                  <button className="btn btn-ghost" style={{ padding: '6px 10px', color: 'var(--danger)' }} type="button" onClick={() => deleteLead(lead.id)}>Sil</button>
                                 )}
                               </div>
                             </td>
@@ -991,38 +1050,51 @@ export function App() {
                       setIsUserModalOpen(true);
                     }}
                   >
-                    Yeni Kullanıcı Ekle
+                    + Yeni Kullanıcı Ekle
                   </button>
                 )}
               </div>
 
               {!isAdmin ? (
-                <div className="small muted">Bu ekrana sadece admin profiline sahip kullanıcılar erişebilir.</div>
+                <div className="small muted" style={{ padding: '20px', textAlign: 'center', background: 'var(--bg-color)', borderRadius: '8px' }}>
+                  Bu ekrana sadece admin profiline sahip kullanıcılar erişebilir.
+                </div>
               ) : (
                 <div className="lead-table-wrapper">
                   <table className="lead-table">
                     <thead>
-                      <tr><th>Kullanıcı Adı</th><th>Profil</th><th>Durum</th><th></th></tr>
+                      <tr><th>Kullanıcı Adı</th><th>Profil</th><th>Durum</th><th style={{ textAlign: 'right' }}>İşlemler</th></tr>
                     </thead>
                     <tbody>
                       {users.map((u) => (
                         <tr key={u.id}>
-                          <td>{u.username}</td>
-                          <td>{u.role === "admin" ? "Admin" : "Satış"}</td>
-                          <td>{u.active === false ? "Pasif" : "Aktif"}</td>
+                          <td style={{ fontWeight: 500 }}>{u.username}</td>
+                          <td>
+                            <span className="badge" style={{ background: u.role === 'admin' ? '#fee2e2' : '#e0e7ff', color: u.role === 'admin' ? '#991b1b' : '#3730a3' }}>
+                              {u.role === "admin" ? "Admin" : "Satış"}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="lead-pill" style={{ background: u.active === false ? '#f3f4f6' : '#dcfce7', color: u.active === false ? '#6b7280' : '#166534' }}>
+                              {u.active === false ? "Pasif" : "Aktif"}
+                            </span>
+                          </td>
                           <td>
                             {u.id !== currentProfile.id && (
-                              <div className="stack-row">
+                              <div className="stack-row" style={{ justifyContent: 'flex-end', gap: '4px' }}>
                                 <button className="btn btn-ghost" type="button" onClick={() => openEditUser(u)}>
                                   Güncelle
                                 </button>
                                 <button className="btn btn-ghost" type="button" onClick={() => toggleUserActive(u.id, u.active)}>
                                   {u.active === false ? "Aktif Et" : "Pasif Et"}
                                 </button>
-                                <button className="btn btn-ghost" style={{ color: "#dc2626" }} type="button" onClick={() => deleteProfile(u.id)}>
+                                <button className="btn btn-ghost" style={{ color: "var(--danger)" }} type="button" onClick={() => deleteProfile(u.id)}>
                                   Sil
                                 </button>
                               </div>
+                            )}
+                            {u.id === currentProfile.id && (
+                               <div className="muted small" style={{ textAlign: 'right', paddingRight: '16px' }}>Kendi Profiliniz</div>
                             )}
                           </td>
                         </tr>
@@ -1036,18 +1108,18 @@ export function App() {
         </div>
       </main>
 
-      {/* TOPLU DEVİR MODALI (YENİ) */}
+      {/* TOPLU DEVİR MODALI */}
       {isBulkOwnerModalOpen && (
         <div className="modal-backdrop" onClick={() => setIsBulkOwnerModalOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Toplu Sahip Değiştirme</div>
-              <button className="btn btn-ghost" type="button" onClick={() => setIsBulkOwnerModalOpen(false)}>Kapat</button>
+              <button className="btn btn-ghost" style={{ padding: '6px' }} type="button" onClick={() => setIsBulkOwnerModalOpen(false)}>✕</button>
             </div>
             <div className="modal-body">
-              <form onSubmit={handleBulkOwnerChange}>
+              <form onSubmit={handleBulkOwnerChange} id="bulk-form">
                 <div className="stack">
-                  <div className="small muted" style={{ marginBottom: 15 }}>
+                  <div className="small muted" style={{ background: '#eef2ff', padding: '12px', borderRadius: '6px', color: '#4f46e5' }}>
                     Seçili <strong>{selectedLeadsForBulk.length}</strong> adet kaydın sorumlusunu değiştirmek üzeresiniz.
                   </div>
                   <div className="field">
@@ -1060,15 +1132,16 @@ export function App() {
                     >
                       <option value="">Lütfen Bir Sahip Seçiniz</option>
                       {users.map((user) => (
-                        <option key={user.id} value={user.id}>{user.username}</option>
+                        <option key={user.id} value={user.id}>{user.username} ({user.role})</option>
                       ))}
                     </select>
                   </div>
                 </div>
-                <div className="modal-footer" style={{ marginTop: 20 }}>
-                  <button className="btn btn-primary" type="submit">Devret</button>
-                </div>
               </form>
+            </div>
+            <div className="modal-footer">
+               <button className="btn btn-ghost" type="button" onClick={() => setIsBulkOwnerModalOpen(false)}>İptal</button>
+               <button className="btn btn-primary" type="submit" form="bulk-form">Devret</button>
             </div>
           </div>
         </div>
@@ -1080,10 +1153,10 @@ export function App() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">{editingUserId ? "Kullanıcıyı Güncelle" : "Yeni Kullanıcı Oluştur"}</div>
-              <button className="btn btn-ghost" type="button" onClick={() => setIsUserModalOpen(false)}>Kapat</button>
+              <button className="btn btn-ghost" style={{ padding: '6px' }} type="button" onClick={() => setIsUserModalOpen(false)}>✕</button>
             </div>
             <div className="modal-body">
-              <form onSubmit={handleSaveUser}>
+              <form onSubmit={handleSaveUser} id="user-form">
                 <div className="stack">
                   <div className="field">
                     <label className="field-label">Kullanıcı Adı <span className="muted">*</span></label>
@@ -1092,6 +1165,7 @@ export function App() {
                       placeholder="Örn: ahmet" 
                       value={newUser.username} 
                       onChange={(e) => setNewUser(prev => ({ ...prev, username: e.target.value }))} 
+                      required
                     />
                     <span className="field-helper">Giriş yaparken bu ismi kullanacaktır.</span>
                   </div>
@@ -1105,13 +1179,14 @@ export function App() {
                         placeholder="En az 6 karakter" 
                         value={newUser.password} 
                         onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))} 
+                        required={!editingUserId}
                       />
                     </div>
                   )}
 
                   {editingUserId && (
-                    <div className="small muted" style={{ marginTop: -10, marginBottom: 10 }}>
-                      * Güvenlik gereği kullanıcı şifreleri sadece Supabase Paneli üzerinden sıfırlanabilir. Buradan sadece Kullanıcı Adı ve Rol güncelleyebilirsiniz.
+                    <div className="small muted" style={{ background: '#fffbeb', padding: '12px', borderRadius: '6px', color: '#b45309' }}>
+                      * Şifre güvenliği veritabanında saklanır. Buradan sadece Kullanıcı Adı ve Rol güncelleyebilirsiniz.
                     </div>
                   )}
 
@@ -1127,13 +1202,13 @@ export function App() {
                     </select>
                   </div>
                 </div>
-
-                <div className="modal-footer" style={{ marginTop: 20 }}>
-                  <button className="btn btn-primary" type="submit">
-                    {editingUserId ? "Değişiklikleri Kaydet" : "Kullanıcıyı Oluştur"}
-                  </button>
-                </div>
               </form>
+            </div>
+            <div className="modal-footer">
+               <button className="btn btn-ghost" type="button" onClick={() => setIsUserModalOpen(false)}>İptal</button>
+               <button className="btn btn-primary" type="submit" form="user-form">
+                 {editingUserId ? "Değişiklikleri Kaydet" : "Kullanıcıyı Oluştur"}
+               </button>
             </div>
           </div>
         </div>
@@ -1142,22 +1217,22 @@ export function App() {
       {/* LEAD EKLEME / GÜNCELLEME MODALI */}
       {isLeadModalOpen && (
         <div className="modal-backdrop" onClick={resetLeadForm}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px' }}>
             <div className="modal-header">
               <div className="modal-title">{leadForm.id ? "Lead Güncelle" : "Yeni Lead Oluştur"}</div>
-              <button className="btn btn-ghost" type="button" onClick={resetLeadForm}>Kapat</button>
+              <button className="btn btn-ghost" style={{ padding: '6px' }} type="button" onClick={resetLeadForm}>✕</button>
             </div>
             <div className="modal-body">
-              <form onSubmit={upsertLead}>
+              <form onSubmit={upsertLead} id="lead-form">
                 <div className="form-grid">
                   <div className="field">
                     <label className="field-label">İsim <span className="muted">*</span></label>
-                    <input className="input" placeholder="Müşteri adı" value={leadForm.name} onChange={(e) => handleLeadFieldChange("name", e.target.value)} />
+                    <input className="input" placeholder="Müşteri adı" value={leadForm.name} onChange={(e) => handleLeadFieldChange("name", e.target.value)} required />
                   </div>
 
                   <div className="field">
                     <label className="field-label">Telefon <span className="muted">*</span></label>
-                    <input className="input" placeholder="+90 ..." value={leadForm.phone} onChange={(e) => handleLeadFieldChange("phone", e.target.value)} />
+                    <input className="input" placeholder="0555..." value={leadForm.phone} onChange={(e) => handleLeadFieldChange("phone", e.target.value)} required />
                   </div>
 
                   <div className="field">
@@ -1205,7 +1280,7 @@ export function App() {
                   </div>
                 </div>
 
-                <div className="field" style={{ marginTop: 10 }}>
+                <div className="field" style={{ marginTop: 24 }}>
                   <label className="field-label">Açıklama (son not)</label>
                   <textarea
                     className="textarea"
@@ -1213,20 +1288,22 @@ export function App() {
                     value={leadForm.pendingNote}
                     onChange={(e) => handleLeadFieldChange("pendingNote", e.target.value)}
                   />
-                  <span className="field-helper">Kaydettikten sonra lead altında tarihçede görebilirsiniz.</span>
-                </div>
-
-                <div className="modal-footer">
-                  {selectedLead && (
-                    <button className="btn btn-ghost" type="button" onClick={addNoteToLead} disabled={!String(leadForm.pendingNote || "").trim()}>
-                      Yalnızca Not Ekle
-                    </button>
-                  )}
-                  <button className="btn btn-primary" type="submit">
-                    {leadForm.id ? "Lead Kaydet / Güncelle" : "Lead Oluştur"}
-                  </button>
+                  <span className="field-helper">Kaydettikten sonra lead altında tarihçede görebilirsiniz. Yalnızca not eklemek için sağ alttaki butonu kullanabilirsiniz.</span>
                 </div>
               </form>
+            </div>
+            
+            <div className="modal-footer">
+              <button className="btn btn-ghost" type="button" onClick={resetLeadForm}>İptal</button>
+              <div style={{ flex: 1 }}></div>
+              {selectedLead && (
+                <button className="btn btn-ghost" style={{ background: '#e0e7ff', color: 'var(--primary)', borderColor: 'transparent' }} type="button" onClick={addNoteToLead} disabled={!String(leadForm.pendingNote || "").trim()}>
+                  Yalnızca Not Ekle
+                </button>
+              )}
+              <button className="btn btn-primary" type="submit" form="lead-form">
+                {leadForm.id ? "Lead Kaydet / Güncelle" : "Lead Oluştur"}
+              </button>
             </div>
           </div>
         </div>
