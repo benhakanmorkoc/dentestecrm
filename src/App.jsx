@@ -20,7 +20,6 @@ const LEAD_STATUSES = [
   "Düşünüp Geri Dönüş Sağlayacak",
   "İletişimde",
   "İstanbul Dışı",
-  "Vazgeçti",
   "Randevu Verilen",
   "Randevu Gelen",
   "Randevu Gelmeyen",
@@ -46,7 +45,7 @@ function createEmptyLead(ownerId) {
   };
 }
 
-export function App() {
+export default function App() {
   const [currentProfile, setCurrentProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
@@ -163,7 +162,7 @@ export function App() {
       setNotes(notesData ?? []);
     } catch (e) {
       console.error(e);
-      // alert("Veriler yüklenirken bir hata oluştu.");
+      alert("Veriler yüklenirken bir hata oluştu.");
     } finally {
       setLoadingData(false);
     }
@@ -171,35 +170,40 @@ export function App() {
 
   useEffect(() => {
     async function initAuth() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setAuthLoading(false);
+          return;
+        }
+
+        const { data: profile, error } = await supabase
+          .from("profiles")
+          .select("id, username, role, active")
+          .eq("id", user.id)
+          .single();
+
+        if (error || !profile) {
+          await supabase.auth.signOut();
+          setAuthLoading(false);
+          return;
+        }
+
+        if (profile.active === false) {
+          await supabase.auth.signOut();
+          alert("Kullanıcı pasif durumdadır.");
+          setAuthLoading(false);
+          return;
+        }
+
+        setCurrentProfile(profile);
         setAuthLoading(false);
-        return;
-      }
-
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("id, username, role, active")
-        .eq("id", user.id)
-        .single();
-
-      if (error || !profile) {
-        await supabase.auth.signOut();
+        setActiveView("leads");
+        await loadAllData();
+      } catch (err) {
+        console.error("Auth init error:", err);
         setAuthLoading(false);
-        return;
       }
-
-      if (profile.active === false) {
-        await supabase.auth.signOut();
-        // alert("Kullanıcı pasif durumdadır.");
-        setAuthLoading(false);
-        return;
-      }
-
-      setCurrentProfile(profile);
-      setAuthLoading(false);
-      setActiveView("leads");
-      await loadAllData();
     }
 
     initAuth();
@@ -220,7 +224,7 @@ export function App() {
       });
 
       if (error || !data.user) {
-        // alert("Kullanıcı adı veya şifre hatalı.");
+        alert("Kullanıcı adı veya şifre hatalı.");
         setAuthLoading(false);
         return;
       }
@@ -232,14 +236,14 @@ export function App() {
         .single();
 
       if (profileError || !profile) {
-        // alert("Profil bulunamadı.");
+        alert("Profil bulunamadı.");
         await supabase.auth.signOut();
         setAuthLoading(false);
         return;
       }
 
       if (profile.active === false) {
-        // alert("Kullanıcı pasif durumdadır.");
+        alert("Kullanıcı pasif durumdadır.");
         await supabase.auth.signOut();
         setAuthLoading(false);
         return;
@@ -250,7 +254,7 @@ export function App() {
       await loadAllData();
     } catch (e) {
       console.error(e);
-      // alert("Giriş yapılırken hata oluştu.");
+      alert("Giriş yapılırken hata oluştu.");
     } finally {
       setAuthLoading(false);
     }
@@ -266,13 +270,15 @@ export function App() {
     setSelectedLeadsForBulk([]);
   }
 
-  // TELEFON NUMARASI BOŞLUK TEMİZLEME MANTIĞI BURADADIR
   function handleLeadFieldChange(field, value) {
-    let finalValue = value;
+    let processedValue = value;
+    
     if (field === "phone") {
-      finalValue = value.replace(/\s/g, '');
+      // Girilen değerdeki tüm boşlukları anında siler
+      processedValue = String(processedValue).replace(/\s+/g, "");
     }
-    setLeadForm((prev) => ({ ...prev, [field]: finalValue }));
+    
+    setLeadForm((prev) => ({ ...prev, [field]: processedValue }));
   }
 
   function resetLeadForm() {
@@ -284,9 +290,9 @@ export function App() {
   // --- TOPLU İŞLEM FONKSİYONLARI ---
   function toggleSelectAll() {
     if (selectedLeadsForBulk.length === filteredLeads.length && filteredLeads.length > 0) {
-      setSelectedLeadsForBulk([]); 
+      setSelectedLeadsForBulk([]); // Hepsini kaldır
     } else {
-      setSelectedLeadsForBulk(filteredLeads.map(lead => lead.id)); 
+      setSelectedLeadsForBulk(filteredLeads.map(lead => lead.id)); // Hepsini seç
     }
   }
 
@@ -298,7 +304,11 @@ export function App() {
 
   async function handleBulkOwnerChange(event) {
     event.preventDefault();
-    if (!bulkNewOwnerId) return;
+    if (!bulkNewOwnerId) {
+      alert("Lütfen devredilecek yeni kullanıcıyı seçin.");
+      return;
+    }
+    
     if (selectedLeadsForBulk.length === 0) return;
 
     try {
@@ -306,16 +316,18 @@ export function App() {
       const { error } = await supabase
         .from("leads")
         .update({ owner_id: bulkNewOwnerId, updated_at: nowIso })
-        .in("id", selectedLeadsForBulk);
+        .in("id", selectedLeadsForBulk); // 'in' operatörü ile toplu güncelleme
 
       if (error) throw error;
 
+      alert(`${selectedLeadsForBulk.length} kaydın sahibi başarıyla güncellendi.`);
       setIsBulkOwnerModalOpen(false);
-      setSelectedLeadsForBulk([]);
+      setSelectedLeadsForBulk([]); // Seçimleri temizle
       setBulkNewOwnerId("");
-      await loadAllData(); 
+      await loadAllData(); // Tabloyu yenile
     } catch (e) {
       console.error(e);
+      alert("Toplu devir işlemi sırasında bir hata oluştu.");
     }
   }
 
@@ -326,10 +338,14 @@ export function App() {
     if (!currentProfile) return;
 
     const safeName = String(leadForm.name || "").trim();
-    const safePhone = String(leadForm.phone || "").trim();
+    // Kaydetmeden önce güvenlik amaçlı boşlukları tekrar temizler
+    const safePhone = String(leadForm.phone || "").replace(/\s+/g, "").trim();
     const safeNote = String(leadForm.pendingNote || "").trim();
 
-    if (!safeName || !safePhone) return;
+    if (!safeName || !safePhone) {
+      alert("İsim ve Telefon zorunludur.");
+      return;
+    }
 
     const nowIso = new Date().toISOString();
     const base = {
@@ -369,6 +385,11 @@ export function App() {
       resetLeadForm();
     } catch (e) {
       console.error("Kayıt Hatası:", e);
+      if (e?.code === '23505') {
+        alert("Girilen telefon numarası sistemde zaten mevcut. Lütfen farklı bir numara giriniz.");
+      } else {
+        alert("Lead kaydedilirken bir hata oluştu: " + (e?.message || "Bilinmeyen hata."));
+      }
     }
   }
 
@@ -399,6 +420,7 @@ export function App() {
       if (selectedLeadId === id) resetLeadForm();
     } catch (e) {
       console.error(e);
+      alert("Lead silinirken bir hata oluştu.");
     }
   }
 
@@ -411,6 +433,7 @@ export function App() {
       await loadAllData();
     } catch (e) {
       console.error(e);
+      alert("Not eklenirken hata oluştu.");
     }
   }
 
@@ -435,7 +458,10 @@ export function App() {
     const safeUsername = String(newUser.username || "").trim();
     const safePassword = String(newUser.password || "").trim();
 
-    if (!safeUsername) return;
+    if (!safeUsername) {
+      alert("Kullanıcı adı zorunludur.");
+      return;
+    }
 
     try {
       if (editingUserId) {
@@ -444,8 +470,12 @@ export function App() {
           .update({ username: safeUsername, role: newUser.role })
           .eq("id", editingUserId);
         if (error) throw error;
+        alert("Kullanıcı bilgileri güncellendi.");
       } else {
-        if (!safePassword) return;
+        if (!safePassword) {
+          alert("Yeni kullanıcı için şifre zorunludur.");
+          return;
+        }
         const email = `${safeUsername}@local.minicrm`;
         const { data, error } = await supabase.auth.signUp({
           email,
@@ -463,6 +493,7 @@ export function App() {
           });
           if (profileError) throw profileError;
         }
+        alert("Kullanıcı başarıyla oluşturuldu.");
       }
       
       setIsUserModalOpen(false);
@@ -471,6 +502,7 @@ export function App() {
       await loadAllData();
     } catch (e) {
       console.error(e);
+      alert("Kullanıcı kaydedilirken hata oluştu. " + (e?.message || ""));
     }
   }
 
@@ -486,31 +518,37 @@ export function App() {
       }
     } catch (e) {
       console.error(e);
+      alert("Kullanıcı durumu güncellenirken hata oluştu.");
     }
   }
 
   async function deleteProfile(id) {
     if (!isAdmin) return;
-    if (!window.confirm("Bu kullanıcıyı silmek istediğinize emin misiniz?")) return;
+    if (!window.confirm("Bu kullanıcıyı silmek istediğinize emin misiniz?\n\nDİKKAT: Kullanıcıya ait 'Lead'ler varsa sistem silmenize izin vermeyecektir.")) return;
 
     try {
       const { error } = await supabase.from("profiles").delete().eq("id", id);
       if (error) {
         if (error.code === '23503') {
-          // alert("Bu kullanıcının Lead'leri olduğu için silinemez.");
+          alert("Bu kullanıcının sistemde üzerine kayıtlı Lead'leri olduğu için silinemez. Lütfen önce Lead'leri devredin veya kullanıcıyı 'Pasif Et' seçeneği ile dondurun.");
         } else {
           throw error;
         }
       } else {
         await loadAllData();
+        alert("Kullanıcı başarıyla silindi.");
       }
     } catch (e) {
       console.error(e);
+      alert("Kullanıcı silinirken bir hata oluştu.");
     }
   }
 
   function exportToCsv() {
-    if (filteredLeads.length === 0) return;
+    if (filteredLeads.length === 0) {
+      alert("Dışa aktarılacak kayıt bulunamadı.");
+      return;
+    }
 
     const headers = [
       "ID", "İsim", "Dil", "Telefon", "Kaynak", "Oluşturulma Tarihi",
@@ -553,28 +591,147 @@ export function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `leads.csv`;
+    const datePart = new Date().toISOString().slice(0, 10);
+    a.download = `leads_${datePart}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  if (authLoading) return <div className="p-8">Yükleniyor...</div>;
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.innerHTML = `
+      :root {
+        --primary: #4f46e5;
+        --primary-hover: #4338ca;
+        --bg-color: #f3f4f6;
+        --surface: #ffffff;
+        --text-main: #111827;
+        --text-muted: #6b7280;
+        --border-color: #e5e7eb;
+        --danger: #dc2626;
+        --success: #16a34a;
+      }
+      body {
+        margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        background-color: var(--bg-color); color: var(--text-main);
+      }
+      .app-shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+      .app-header { background: var(--surface); border-bottom: 1px solid var(--border-color); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05); z-index: 10;}
+      .app-header-title { font-size: 1.25rem; font-weight: 600; color: var(--primary); margin-bottom: 4px; }
+      .app-header-subtitle { font-size: 0.875rem; color: var(--text-muted); }
+      .app-main { display: flex; flex: 1; overflow: hidden; }
+      .sidebar { width: 70px; background: var(--surface); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; align-items: center; padding: 20px 0; gap: 16px; z-index: 5; }
+      .sidebar-title { font-size: 0.75rem; font-weight: bold; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 1px; }
+      .nav-button { background: transparent; border: none; width: 44px; height: 44px; border-radius: 8px; font-size: 1.25rem; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-muted); transition: all 0.2s; }
+      .nav-button:hover { background: var(--bg-color); color: var(--primary); }
+      .nav-button-active { background: #e0e7ff; color: var(--primary); }
+      .nav-button-logout { margin-top: auto; color: var(--danger); }
+      .nav-button-logout:hover { background: #fee2e2; color: var(--danger); }
+      
+      .content { flex: 1; overflow-y: auto; padding: 24px; }
+      .card { background: var(--surface); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 24px; margin-bottom: 24px; }
+      .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
+      .card-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 4px; }
+      .card-subtitle { font-size: 0.875rem; color: var(--text-muted); }
+      
+      .stack { display: flex; flex-direction: column; gap: 16px; }
+      .stack-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .filters-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+      .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+      
+      .field { display: flex; flex-direction: column; gap: 6px; }
+      .field-label { font-size: 0.875rem; font-weight: 500; color: var(--text-main); }
+      .field-helper { font-size: 0.75rem; color: var(--text-muted); }
+      .input, .select, .textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.875rem; background: #fff; color: var(--text-main); outline: none; transition: border-color 0.2s; box-sizing: border-box; }
+      .input:focus, .select:focus, .textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
+      .textarea { min-height: 80px; resize: vertical; }
+      
+      .btn { padding: 10px 16px; border-radius: 6px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border: 1px solid transparent; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; }
+      .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+      .btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
+      .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+      .btn-ghost { background: transparent; border-color: var(--border-color); color: var(--text-main); }
+      .btn-ghost:hover:not(:disabled) { background: var(--bg-color); }
+      
+      .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; background: #e0e7ff; color: var(--primary); }
+      
+      .chips-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; margin-bottom: 8px; }
+      .chip { padding: 6px 12px; border-radius: 9999px; border: 1px solid var(--border-color); background: var(--surface); font-size: 0.75rem; cursor: pointer; color: var(--text-main); transition: all 0.2s; }
+      .chip:hover { background: var(--bg-color); }
+      .chip-active { background: var(--primary); color: white; border-color: var(--primary); }
+      .chip-active:hover { background: var(--primary-hover); }
+      
+      .lead-table-wrapper { width: 100%; overflow-x: auto; margin-top: 16px; border: 1px solid var(--border-color); border-radius: 8px; }
+      .lead-table { width: 100%; border-collapse: collapse; min-width: 800px; }
+      .lead-table th { background: #f9fafb; padding: 12px 16px; text-align: left; font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid var(--border-color); }
+      .lead-table td { padding: 16px; border-bottom: 1px solid var(--border-color); font-size: 0.875rem; vertical-align: top; }
+      .lead-table tr:last-child td { border-bottom: none; }
+      .lead-table tr:hover { background: #f9fafb; }
+      
+      .lead-pill { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 500; }
+      .lead-pill-status-default { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+      .lead-pill-status-success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+      .lead-pill-status-danger { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+      
+      .timeline { display: flex; flex-direction: column; gap: 8px; max-height: 120px; overflow-y: auto; padding-right: 8px; }
+      .timeline-item { border-left: 2px solid var(--border-color); padding-left: 10px; position: relative; }
+      .timeline-item::before { content: ''; position: absolute; left: -5px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--border-color); }
+      .timeline-date { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 2px; }
+      .timeline-text { font-size: 0.8rem; line-height: 1.4; }
+      
+      .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; backdrop-filter: blur(2px); }
+      .modal { background: var(--surface); border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+      .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+      .modal-title { font-size: 1.25rem; font-weight: 600; }
+      .modal-body { padding: 24px; overflow-y: auto; flex: 1; }
+      .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 12px; background: #f9fafb; border-radius: 0 0 12px 12px; }
+      
+      .login-shell { display: flex; align-items: center; justify-content: center; height: 100vh; background: #e0e7ff; }
+      .login-card { background: var(--surface); padding: 40px; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }
+      .login-title { font-size: 1.5rem; font-weight: bold; color: var(--primary); margin-bottom: 8px; }
+      .login-subtitle { font-size: 0.875rem; color: var(--text-muted); margin-bottom: 32px; }
+      .login-card .field { text-align: left; }
+      .login-card .button-row { margin-top: 24px; }
+      .login-card .btn { width: 100%; }
+      
+      .small { font-size: 0.875rem; }
+      .muted { color: var(--text-muted); }
+    `;
+    document.head.appendChild(style);
+    return () => document.head.removeChild(style);
+  }, []);
+
+  if (authLoading) {
+    return (
+      <div className="login-shell">
+        <div className="login-card">
+          <div className="login-title">CRM - DentEste</div>
+          <div className="login-subtitle">Yükleniyor...</div>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentProfile) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-100 p-4">
-        <div className="bg-white p-8 rounded shadow w-full max-w-sm">
-          <h2 className="text-2xl font-bold mb-4">CRM - DentEste</h2>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium">Kullanıcı Adı</label>
-              <input name="username" className="w-full border p-2 rounded" />
+      <div className="login-shell">
+        <div className="login-card">
+          <div className="login-title">CRM - DentEste</div>
+          <div className="login-subtitle">Lütfen kullanıcı adınız ve şifreniz ile giriş yapın.</div>
+          <form onSubmit={handleLogin} className="stack">
+            <div className="field">
+              <label className="field-label">Kullanıcı Adı</label>
+              <input name="username" className="input" placeholder="Kullanıcı Adı" autoComplete="username" />
             </div>
-            <div>
-              <label className="block text-sm font-medium">Şifre</label>
-              <input name="password" type="password" className="w-full border p-2 rounded" />
+            <div className="field">
+              <label className="field-label">Şifre</label>
+              <input name="password" type="password" className="input" placeholder="Şifre" autoComplete="current-password" />
             </div>
-            <button className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700" type="submit">Giriş Yap</button>
+            <div className="button-row">
+              <button className="btn btn-primary" type="submit" disabled={authLoading}>
+                {authLoading ? "Giriş Yapılıyor..." : "Giriş Yap"}
+              </button>
+            </div>
           </form>
         </div>
       </div>
@@ -582,163 +739,610 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
-      <header className="bg-white shadow p-4 flex justify-between items-center">
+    <div className="app-shell">
+      <header className="app-header">
         <div>
-          <h1 className="text-xl font-bold text-blue-800">CRM - DentEste</h1>
-          <p className="text-xs text-gray-500">Müşteri Yönetim Sistemi</p>
+          <div className="app-header-title">CRM - DentEste</div>
+          <div className="app-header-subtitle">
+            Lead kaydı, filtreleme ve Excel&apos;e aktarım için hafif CRM.
+          </div>
         </div>
-        <div className="text-right">
-          <p className="text-sm font-bold">{currentProfile.username}</p>
-          <button onClick={handleLogout} className="text-xs text-red-600 font-bold">Güvenli Çıkış</button>
+        <div className="stack" style={{ alignItems: "flex-end" }}>
+          <div className="stack-row">
+            <span className="badge">Toplam Lead: {totalCount}</span>
+            <span className="badge">Yeni: {countByStatus["Yeni"] ?? 0}</span>
+            <span className="badge">Teklif Verildi: {countByStatus["Teklif Verildi"] ?? 0}</span>
+            <span className="badge">Satıldı: {countByStatus["Satıldı"] ?? 0}</span>
+          </div>
+          <div className="small muted">
+            Oturum: {currentProfile.username} ({currentProfile.role === "admin" ? "Admin" : "Satış"})
+          </div>
         </div>
       </header>
 
-      <main className="flex-1 p-4 lg:p-8">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <h2 className="text-2xl font-bold">Müşteri Listesi</h2>
-            <div className="flex gap-2">
-              {selectedLeadsForBulk.length > 0 && (
-                <button onClick={() => setIsBulkOwnerModalOpen(true)} className="bg-indigo-600 text-white px-4 py-2 rounded text-sm">Devret ({selectedLeadsForBulk.length})</button>
-              )}
-              <button onClick={() => { setLeadForm(createEmptyLead(currentProfile.id)); setIsLeadModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded text-sm">Yeni Lead</button>
-              <button onClick={exportToCsv} className="bg-white border px-4 py-2 rounded text-sm">Excel İndir</button>
-            </div>
-          </div>
+      <main className="app-main">
+        <aside className="sidebar">
+          <div className="sidebar-title">CRM</div>
+          <button
+            className={`nav-button ${activeView === "leads" ? "nav-button-active" : ""}`}
+            type="button"
+            onClick={() => setActiveView("leads")}
+            title="Leadler"
+          >
+            <span>📋</span>
+          </button>
+          <button
+            className={`nav-button ${activeView === "users" ? "nav-button-active" : ""}`}
+            type="button"
+            onClick={() => isAdmin && setActiveView("users")}
+            disabled={!isAdmin}
+            title={isAdmin ? "Kullanıcı Tanımları" : "Sadece admin görebilir"}
+          >
+            <span>👤</span>
+          </button>
+          <button className="nav-button nav-button-logout" type="button" onClick={handleLogout} title="Sistemden Çıkış">
+            <span>⏻</span>
+          </button>
+        </aside>
 
-          {/* Filtreler */}
-          <div className="bg-white p-4 rounded shadow grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-400 mb-1">DURUM</label>
-              <select className="w-full border p-2 rounded text-sm" value={filters.status} onChange={e => setFilters(prev => ({...prev, status: e.target.value}))}>
-                <option value="">Tümü</option>
-                {LEAD_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-400 mb-1">SAHİP</label>
-              <select className="w-full border p-2 rounded text-sm" value={filters.ownerId} onChange={e => setFilters(prev => ({...prev, ownerId: e.target.value}))}>
-                <option value="">Herkes</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-400 mb-1">TARİH</label>
-              <div className="flex gap-2">
-                <input type="date" className="w-full border p-2 rounded text-sm" value={filters.fromDate} onChange={e => setFilters(prev => ({...prev, fromDate: e.target.value}))} />
-                <input type="date" className="w-full border p-2 rounded text-sm" value={filters.toDate} onChange={e => setFilters(prev => ({...prev, toDate: e.target.value}))} />
+        <div className="content">
+          {activeView === "leads" && (
+            <section className="card">
+              <div className="card-header">
+                <div>
+                  <div className="card-title">Lead Listesi ve Filtreler</div>
+                  <div className="card-subtitle">Oluşturulma tarihi, durum, kaynak ve lead sahibi ile filtreleyin.</div>
+                </div>
+                <div className="stack-row">
+                  {/* TOPLU DEVİR BUTONU: Sadece 1 veya daha fazla kayıt seçiliyse görünür */}
+                  {selectedLeadsForBulk.length > 0 && (
+                    <button
+                      className="btn btn-primary"
+                      style={{ backgroundColor: '#4f46e5', borderColor: '#4f46e5' }}
+                      type="button"
+                      onClick={() => setIsBulkOwnerModalOpen(true)}
+                    >
+                      Seçilileri Devret ({selectedLeadsForBulk.length})
+                    </button>
+                  )}
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    onClick={() => {
+                      const satis1User = users.find((u) => u.username === "Satis1");
+                      const defaultOwnerId = satis1User ? satis1User.id : currentProfile.id;
+                      setLeadForm(createEmptyLead(defaultOwnerId));
+                      setSelectedLeadId(null);
+                      setIsLeadModalOpen(true);
+                    }}
+                  >
+                    Ekle
+                  </button>
+                  <button className="btn btn-ghost" type="button" onClick={exportToCsv}>
+                    Excel (CSV) İndir
+                  </button>
+                </div>
               </div>
-            </div>
-          </div>
 
-          <div className="bg-white rounded shadow overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b text-xs font-bold text-gray-500">
-                  <th className="p-4 w-10"><input type="checkbox" onChange={toggleSelectAll} checked={filteredLeads.length > 0 && selectedLeadsForBulk.length === filteredLeads.length} /></th>
-                  <th className="p-4 uppercase">Müşteri Bilgisi</th>
-                  <th className="p-4 uppercase">İletişim</th>
-                  <th className="p-4 uppercase">Durum</th>
-                  <th className="p-4 uppercase">Sorumlu</th>
-                  <th className="p-4 uppercase">İşlem</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm divide-y">
-                {filteredLeads.length === 0 ? (
-                  <tr><td colSpan="6" className="p-8 text-center text-gray-400">Kayıt bulunamadı.</td></tr>
-                ) : (
-                  filteredLeads.map(lead => (
-                    <tr key={lead.id} className={selectedLeadsForBulk.includes(lead.id) ? 'bg-blue-50' : 'hover:bg-gray-50'}>
-                      <td className="p-4"><input type="checkbox" checked={selectedLeadsForBulk.includes(lead.id)} onChange={() => toggleSelectLead(lead.id)} /></td>
-                      <td className="p-4">
-                        <div className="font-bold">{lead.name}</div>
-                        <div className="text-[10px] text-gray-400">{formatDate(lead.created_at)}</div>
-                      </td>
-                      <td className="p-4">
-                        <div>{lead.phone}</div>
-                        <div className="text-[10px] text-gray-400">{lead.language} • {lead.source}</div>
-                      </td>
-                      <td className="p-4">
-                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${lead.status === 'Satış' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{lead.status}</span>
-                      </td>
-                      <td className="p-4 text-gray-600">{users.find(u => u.id === lead.owner_id)?.username || '-'}</td>
-                      <td className="p-4">
-                        <div className="flex gap-2">
-                          <button onClick={() => editLead(lead)} className="text-blue-600 hover:underline">Düzenle</button>
-                          {isAdmin && <button onClick={() => deleteLead(lead.id)} className="text-red-600 hover:underline">Sil</button>}
-                        </div>
-                      </td>
+              <div className="stack">
+                <div className="filters-grid">
+                  <div className="field">
+                    <label className="field-label">Durum</label>
+                    <select
+                      className="select"
+                      value={filters.status}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
+                    >
+                      <option value="">Tümü</option>
+                      {LEAD_STATUSES.map((status) => (
+                        <option key={status} value={status}>{status}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label className="field-label">Lead Sahibi</label>
+                    <select
+                      className="select"
+                      value={filters.ownerId}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, ownerId: e.target.value }))}
+                    >
+                      <option value="">Tümü</option>
+                      {users.map((user) => (
+                        <option key={user.id} value={user.id}>{user.username}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label className="field-label">Kaynak</label>
+                    <select
+                      className="select"
+                      value={filters.source}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, source: e.target.value }))}
+                    >
+                      <option value="">Tümü</option>
+                      {LEAD_SOURCES.map((src) => (
+                        <option key={src} value={src}>{src}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label className="field-label">Tarih Aralığı (Oluşturulma)</label>
+                    <div className="stack-row">
+                      <input
+                        className="input"
+                        type="date"
+                        value={filters.fromDate}
+                        onChange={(e) => setFilters((prev) => ({ ...prev, fromDate: e.target.value }))}
+                      />
+                      <input
+                        className="input"
+                        type="date"
+                        value={filters.toDate}
+                        onChange={(e) => setFilters((prev) => ({ ...prev, toDate: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="chips-row">
+                  <button
+                    className={`chip ${!filters.status && !filters.fromDate ? "chip-active" : ""}`}
+                    type="button"
+                    onClick={() => setFilters({ status: "", ownerId: "", source: "", fromDate: "", toDate: "" })}
+                  >
+                    Tümü
+                  </button>
+
+                  <button
+                    className="chip"
+                    type="button"
+                    onClick={() => {
+                      const d = getLocalDateString(new Date());
+                      setFilters(prev => ({ ...prev, fromDate: d, toDate: d }));
+                    }}
+                  >
+                    Bugün
+                  </button>
+
+                  <button
+                    className="chip"
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      const firstDay = getLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1));
+                      setFilters(prev => ({ ...prev, fromDate: firstDay, toDate: "" }));
+                    }}
+                  >
+                    Bu Ay
+                  </button>
+
+                  <button
+                    className="chip"
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      const threeMonthsAgo = getLocalDateString(new Date(now.getFullYear(), now.getMonth() - 3, now.getDate()));
+                      setFilters(prev => ({ ...prev, fromDate: threeMonthsAgo, toDate: "" }));
+                    }}
+                  >
+                    Son 3 Ay
+                  </button>
+
+                  <button
+                    className={`chip ${filters.status === "Sıcak" ? "chip-active" : ""}`}
+                    type="button"
+                    onClick={() =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        status: prev.status === "Sıcak" ? "" : "Sıcak",
+                      }))
+                    }
+                  >
+                    Sıcak
+                  </button>
+
+                  <button
+                    className={`chip ${filters.status === "Satıldı" ? "chip-active" : ""}`}
+                    type="button"
+                    onClick={() =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        status: prev.status === "Satıldı" ? "" : "Satıldı",
+                      }))
+                    }
+                  >
+                    Satılanlar
+                  </button>
+
+                  <button
+                    className="chip"
+                    type="button"
+                    onClick={() =>
+                      setFilters({
+                        status: "",
+                        ownerId: "",
+                        source: "",
+                        fromDate: "",
+                        toDate: "",
+                      })
+                    }
+                  >
+                    Filtreleri Temizle
+                  </button>
+                </div>
+
+                <div className="small muted">Gösterilen kayıt: {filteredLeads.length} / {totalCount}</div>
+              </div>
+
+              <div className="lead-table-wrapper">
+                <table className="lead-table">
+                  <thead>
+                    <tr>
+                      {/* TOPLU SEÇİM BAŞLIĞI */}
+                      <th style={{ width: 40, textAlign: 'center' }}>
+                        <input 
+                          type="checkbox" 
+                          style={{ cursor: "pointer", width: 16, height: 16 }}
+                          title="Filtrelenen Tümünü Seç/Bırak"
+                          checked={filteredLeads.length > 0 && selectedLeadsForBulk.length === filteredLeads.length}
+                          onChange={toggleSelectAll}
+                        />
+                      </th>
+                      <th>Lead</th>
+                      <th>İletişim</th>
+                      <th>Kaynak / Sahip</th>
+                      <th>Durum</th>
+                      <th>Tarihçeler</th>
+                      <th>Teklif</th>
+                      <th></th>
                     </tr>
-                  ))
+                  </thead>
+                  <tbody>
+                    {filteredLeads.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} style={{ textAlign: "center", padding: 16 }}>
+                          {loadingData ? "Kayıtlar yükleniyor..." : "Henüz kayıt yok veya filtrelere uyan lead bulunamadı."}
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredLeads.map((lead) => {
+                        const ownerName = users.find((u) => u.id === lead.owner_id)?.username ?? "-";
+                        const statusClass =
+                          lead.status === "Satıldı"
+                            ? "lead-pill-status-success"
+                            : lead.status === "Vazgeçti"
+                            ? "lead-pill-status-danger"
+                            : "lead-pill-status-default";
+
+                        return (
+                          <tr key={lead.id} style={{ backgroundColor: selectedLeadsForBulk.includes(lead.id) ? "#f0fdf4" : "" }}>
+                            {/* TEKİL SEÇİM KUTUCUĞU */}
+                            <td style={{ textAlign: 'center' }}>
+                              <input 
+                                type="checkbox"
+                                style={{ cursor: "pointer", width: 16, height: 16 }}
+                                checked={selectedLeadsForBulk.includes(lead.id)}
+                                onChange={() => toggleSelectLead(lead.id)}
+                              />
+                            </td>
+                            <td>
+                              <div className="stack">
+                                <div>{lead.name}</div>
+                                <div className="small muted">Oluşturma: {formatDate(lead.created_at)}</div>
+                                <div className="small muted">Güncelleme: {formatDate(lead.updated_at)}</div>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="stack">
+                                <div>{lead.phone}</div>
+                                <div className="small muted">{lead.language}</div>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="stack">
+                                <div className="small muted">{lead.source || "-"}</div>
+                                <div className="small">{ownerName}</div>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="stack">
+                                <span className={`lead-pill ${statusClass}`}>{lead.status}</span>
+                                {lead.stage && <span className="lead-pill lead-pill-status-default">{lead.stage}</span>}
+                              </div>
+                            </td>
+                            <td>
+                              <div className="timeline">
+                                {notes.filter((n) => n.lead_id === lead.id).length === 0 ? (
+                                  <div className="timeline-item">
+                                    <div className="timeline-text muted small">Henüz açıklama yok.</div>
+                                  </div>
+                                ) : (
+                                  notes
+                                    .filter((note) => note.lead_id === lead.id)
+                                    .map((note) => (
+                                      <div key={note.id} className="timeline-item">
+                                        <div className="timeline-date">{formatDate(note.created_at)}</div>
+                                        <div className="timeline-text">{note.text}</div>
+                                      </div>
+                                    ))
+                                )}
+                              </div>
+                            </td>
+                            <td><div className="small">{lead.quote || "-"}</div></td>
+                            <td>
+                              <div className="stack-row">
+                                <button className="btn btn-ghost" type="button" onClick={() => editLead(lead)}>Düzenle</button>
+                                {isAdmin && (
+                                  <button className="btn btn-ghost" type="button" onClick={() => deleteLead(lead.id)}>Sil</button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {activeView === "users" && (
+            <section className="card">
+              <div className="card-header">
+                <div>
+                  <div className="card-title">Kullanıcı Yönetimi</div>
+                  <div className="card-subtitle">Admin kullanıcılar sisteme yeni kullanıcı ekleyebilir ve yönetebilir.</div>
+                </div>
+                {isAdmin && (
+                  <button 
+                    className="btn btn-primary" 
+                    type="button" 
+                    onClick={() => {
+                      setEditingUserId(null);
+                      setNewUser({ username: "", password: "", role: "sales" });
+                      setIsUserModalOpen(true);
+                    }}
+                  >
+                    Yeni Kullanıcı Ekle
+                  </button>
                 )}
-              </tbody>
-            </table>
-          </div>
+              </div>
+
+              {!isAdmin ? (
+                <div className="small muted">Bu ekrana sadece admin profiline sahip kullanıcılar erişebilir.</div>
+              ) : (
+                <div className="lead-table-wrapper">
+                  <table className="lead-table">
+                    <thead>
+                      <tr><th>Kullanıcı Adı</th><th>Profil</th><th>Durum</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {users.map((u) => (
+                        <tr key={u.id}>
+                          <td>{u.username}</td>
+                          <td>{u.role === "admin" ? "Admin" : "Satış"}</td>
+                          <td>{u.active === false ? "Pasif" : "Aktif"}</td>
+                          <td>
+                            {u.id !== currentProfile.id && (
+                              <div className="stack-row">
+                                <button className="btn btn-ghost" type="button" onClick={() => openEditUser(u)}>
+                                  Güncelle
+                                </button>
+                                <button className="btn btn-ghost" type="button" onClick={() => toggleUserActive(u.id, u.active)}>
+                                  {u.active === false ? "Aktif Et" : "Pasif Et"}
+                                </button>
+                                <button className="btn btn-ghost" style={{ color: "#dc2626" }} type="button" onClick={() => deleteProfile(u.id)}>
+                                  Sil
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
         </div>
       </main>
 
-      {/* Lead Modal */}
-      {isLeadModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded shadow-xl w-full max-w-lg overflow-hidden">
-            <div className="p-4 border-b flex justify-between items-center bg-gray-50 font-bold">
-              <h3>{leadForm.id ? 'Lead Güncelle' : 'Yeni Lead'}</h3>
-              <button onClick={() => setIsLeadModalOpen(false)}>&times;</button>
+      {/* TOPLU DEVİR MODALI (YENİ) */}
+      {isBulkOwnerModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsBulkOwnerModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Toplu Sahip Değiştirme</div>
+              <button className="btn btn-ghost" type="button" onClick={() => setIsBulkOwnerModalOpen(false)}>Kapat</button>
             </div>
-            <form onSubmit={upsertLead} className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold mb-1">MÜŞTERİ ADI *</label>
-                <input required className="w-full border p-2 rounded text-sm" value={leadForm.name} onChange={e => handleLeadFieldChange("name", e.target.value)} />
-              </div>
-              <div>
-                <label className="block text-xs font-bold mb-1">TELEFON *</label>
-                <input required className="w-full border p-2 rounded text-sm" placeholder="Boşluksuz giriniz" value={leadForm.phone} onChange={e => handleLeadFieldChange("phone", e.target.value)} />
-              </div>
-              <div>
-                <label className="block text-xs font-bold mb-1">DİL</label>
-                <select className="w-full border p-2 rounded text-sm" value={leadForm.language} onChange={e => handleLeadFieldChange("language", e.target.value)}>
-                  {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold mb-1">DURUM</label>
-                <select className="w-full border p-2 rounded text-sm" value={leadForm.status} onChange={e => handleLeadFieldChange("status", e.target.value)}>
-                  {LEAD_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold mb-1">KAYNAK</label>
-                <select className="w-full border p-2 rounded text-sm" value={leadForm.source} onChange={e => handleLeadFieldChange("source", e.target.value)}>
-                  {LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold mb-1">AÇIKLAMA</label>
-                <textarea className="w-full border p-2 rounded text-sm h-24" value={leadForm.pendingNote} onChange={e => handleLeadFieldChange("pendingNote", e.target.value)} />
-              </div>
-              <div className="sm:col-span-2 flex justify-end gap-2 pt-4 border-t">
-                <button type="button" onClick={() => setIsLeadModalOpen(false)} className="px-4 py-2 border rounded text-sm">İptal</button>
-                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold">Kaydet</button>
-              </div>
-            </form>
+            <div className="modal-body">
+              <form onSubmit={handleBulkOwnerChange}>
+                <div className="stack">
+                  <div className="small muted" style={{ marginBottom: 15 }}>
+                    Seçili <strong>{selectedLeadsForBulk.length}</strong> adet kaydın sorumlusunu değiştirmek üzeresiniz.
+                  </div>
+                  <div className="field">
+                    <label className="field-label">Yeni Lead Sahibi <span className="muted">*</span></label>
+                    <select
+                      className="select"
+                      value={bulkNewOwnerId}
+                      onChange={(e) => setBulkNewOwnerId(e.target.value)}
+                      required
+                    >
+                      <option value="">Lütfen Bir Sahip Seçiniz</option>
+                      {users.map((user) => (
+                        <option key={user.id} value={user.id}>{user.username}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="modal-footer" style={{ marginTop: 20 }}>
+                  <button className="btn btn-primary" type="submit">Devret</button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Devir Modalı */}
-      {isBulkOwnerModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded shadow-xl w-full max-w-sm p-6">
-            <h3 className="font-bold text-lg mb-4">Sorumlu Değiştir</h3>
-            <p className="text-sm text-gray-500 mb-6">{selectedLeadsForBulk.length} adet kaydı kime devretmek istersiniz?</p>
-            <select className="w-full border p-2 rounded text-sm mb-6" value={bulkNewOwnerId} onChange={e => setBulkNewOwnerId(e.target.value)}>
-              <option value="">Seçiniz...</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
-            </select>
-            <div className="flex gap-2">
-              <button onClick={() => setIsBulkOwnerModalOpen(false)} className="flex-1 py-2 border rounded text-sm">Vazgeç</button>
-              <button onClick={handleBulkOwnerChange} className="flex-1 py-2 bg-blue-600 text-white rounded text-sm font-bold">Onayla</button>
+      {/* YENİ KULLANICI EKLEME / GÜNCELLEME MODALI */}
+      {isUserModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsUserModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">{editingUserId ? "Kullanıcıyı Güncelle" : "Yeni Kullanıcı Oluştur"}</div>
+              <button className="btn btn-ghost" type="button" onClick={() => setIsUserModalOpen(false)}>Kapat</button>
+            </div>
+            <div className="modal-body">
+              <form onSubmit={handleSaveUser}>
+                <div className="stack">
+                  <div className="field">
+                    <label className="field-label">Kullanıcı Adı <span className="muted">*</span></label>
+                    <input 
+                      className="input" 
+                      placeholder="Örn: ahmet" 
+                      value={newUser.username} 
+                      onChange={(e) => setNewUser(prev => ({ ...prev, username: e.target.value }))} 
+                    />
+                    <span className="field-helper">Giriş yaparken bu ismi kullanacaktır.</span>
+                  </div>
+                  
+                  {!editingUserId && (
+                    <div className="field">
+                      <label className="field-label">Şifre <span className="muted">*</span></label>
+                      <input 
+                        className="input" 
+                        type="password"
+                        placeholder="En az 6 karakter" 
+                        value={newUser.password} 
+                        onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))} 
+                      />
+                    </div>
+                  )}
+
+                  {editingUserId && (
+                    <div className="small muted" style={{ marginTop: -10, marginBottom: 10 }}>
+                      * Güvenlik gereği kullanıcı şifreleri sadece Supabase Paneli üzerinden sıfırlanabilir. Buradan sadece Kullanıcı Adı ve Rol güncelleyebilirsiniz.
+                    </div>
+                  )}
+
+                  <div className="field">
+                    <label className="field-label">Rol</label>
+                    <select 
+                      className="select" 
+                      value={newUser.role} 
+                      onChange={(e) => setNewUser(prev => ({ ...prev, role: e.target.value }))}
+                    >
+                      <option value="sales">Satış</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="modal-footer" style={{ marginTop: 20 }}>
+                  <button className="btn btn-primary" type="submit">
+                    {editingUserId ? "Değişiklikleri Kaydet" : "Kullanıcıyı Oluştur"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LEAD EKLEME / GÜNCELLEME MODALI */}
+      {isLeadModalOpen && (
+        <div className="modal-backdrop" onClick={resetLeadForm}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">{leadForm.id ? "Lead Güncelle" : "Yeni Lead Oluştur"}</div>
+              <button className="btn btn-ghost" type="button" onClick={resetLeadForm}>Kapat</button>
+            </div>
+            <div className="modal-body">
+              <form onSubmit={upsertLead}>
+                <div className="form-grid">
+                  <div className="field">
+                    <label className="field-label">İsim <span className="muted">*</span></label>
+                    <input className="input" placeholder="Müşteri adı" value={leadForm.name} onChange={(e) => handleLeadFieldChange("name", e.target.value)} />
+                  </div>
+
+                  <div className="field">
+                    <label className="field-label">Telefon <span className="muted">*</span></label>
+                    <input className="input" placeholder="+90 ..." value={leadForm.phone} onChange={(e) => handleLeadFieldChange("phone", e.target.value)} />
+                  </div>
+
+                  <div className="field">
+                    <label className="field-label">Dil</label>
+                    <select className="select" value={leadForm.language} onChange={(e) => handleLeadFieldChange("language", e.target.value)}>
+                      <option value="">Seçiniz</option>
+                      {LANGUAGES.map((lang) => <option key={lang} value={lang}>{lang}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label className="field-label">Kaynak</label>
+                    <select className="select" value={leadForm.source} onChange={(e) => handleLeadFieldChange("source", e.target.value)}>
+                      <option value="">Seçiniz</option>
+                      {LEAD_SOURCES.map((src) => <option key={src} value={src}>{src}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label className="field-label">Durum</label>
+                    <select className="select" value={leadForm.status} onChange={(e) => handleLeadFieldChange("status", e.target.value)}>
+                      {LEAD_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label className="field-label">Aşama</label>
+                    <select className="select" value={leadForm.stage} onChange={(e) => handleLeadFieldChange("stage", e.target.value)}>
+                      <option value="">Seçiniz</option>
+                      {LEAD_STAGES.map((stage) => <option key={stage} value={stage}>{stage}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label className="field-label">Lead Sahibi</label>
+                    <select className="select" value={leadForm.owner_id} onChange={(e) => handleLeadFieldChange("owner_id", e.target.value)}>
+                      <option value="">Seçiniz</option>
+                      {users.map((user) => <option key={user.id} value={user.id}>{user.username}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label className="field-label">Teklif</label>
+                    <input className="input" placeholder="Teklif özeti veya tutar" value={leadForm.quote} onChange={(e) => handleLeadFieldChange("quote", e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="field" style={{ marginTop: 10 }}>
+                  <label className="field-label">Açıklama (son not)</label>
+                  <textarea
+                    className="textarea"
+                    placeholder="Görüşme notu, itirazlar, aksiyonlar..."
+                    value={leadForm.pendingNote}
+                    onChange={(e) => handleLeadFieldChange("pendingNote", e.target.value)}
+                  />
+                  <span className="field-helper">Kaydettikten sonra lead altında tarihçede görebilirsiniz.</span>
+                </div>
+
+                <div className="modal-footer">
+                  {selectedLead && (
+                    <button className="btn btn-ghost" type="button" onClick={addNoteToLead} disabled={!String(leadForm.pendingNote || "").trim()}>
+                      Yalnızca Not Ekle
+                    </button>
+                  )}
+                  <button className="btn btn-primary" type="submit">
+                    {leadForm.id ? "Lead Kaydet / Güncelle" : "Lead Oluştur"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
