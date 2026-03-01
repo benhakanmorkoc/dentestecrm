@@ -24,13 +24,14 @@ import {
 
 // =========================================================================
 // 🚀 CANLI ORTAMA (GITHUB) YÜKLERKEN AŞAĞIDAKİ SATIRIN BAŞINDAKİ // İŞARETİNİ SİLİN:
- import { supabase } from "./supabaseClient"; 
+import { supabase } from "./supabaseClient"; 
 // =========================================================================
 
-// --- ÖNİZLEME (MOCK) VERİLERİ (Sistemin burada çalışabilmesi için eklendi) ---
+// --- MOCK DATA STORE (Önizleme İçin Gerçekçi Veritabanı Simülasyonu) ---
 let mockProfiles = [
   { id: "user_1", email: "admin@denteste.com", name: "Admin User", status: "Aktif", role: "Admin", created_at: "2023-01-10T10:00:00Z" },
-  { id: "user_2", email: "satis1@denteste.com", name: "Mehmet Yılmaz", status: "Aktif", role: "Satış", created_at: "2023-02-15T10:00:00Z" }
+  { id: "user_2", email: "satis1@denteste.com", name: "Mehmet Yılmaz", status: "Aktif", role: "Satış", created_at: "2023-02-15T10:00:00Z" },
+  { id: "user_3", email: "satis2@denteste.com", name: "Ayşe Demir", status: "Pasif", role: "Satış", created_at: "2023-03-20T10:00:00Z" }
 ];
 
 let mockLeads = [
@@ -103,8 +104,7 @@ const supabaseMock = {
   })
 };
 
-// GITHUB'A ATARKEN AŞAĞIDAKİ SATIRI SİLEBİLİRSİNİZ VEYA YORUMA ALABİLİRSİNİZ.
-const supabase = typeof window !== 'undefined' && !window.location.hostname.includes('vercel') ? supabaseMock : supabaseMock; // Önizleme için sabitlendi. Canlıda import çalışacak.
+const supabase = supabaseMock;
 
 // --- CONSTANTS ---
 const LEAD_SOURCES = ["Facebook Reklam", "Direk Arama", "Referans", "Direk Mesaj-Instagram", "Eski Data"];
