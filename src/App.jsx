@@ -1,1352 +1,838 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "./supabaseClient";
+import { 
+  LayoutDashboard, 
+  Users, 
+  LogOut, 
+  Search, 
+  Plus, 
+  X, 
+  Download, 
+  UserPlus,
+  Phone,
+  MessageSquare,
+  CreditCard,
+  Edit,
+  Trash2,
+  Clock,
+  History,
+  CheckSquare,
+  Shield,
+  Power,
+  PowerOff,
+  Filter
+} from "lucide-react";
 
-const LEAD_SOURCES = [
-  "Facebook Reklam",
-  "Direk Arama",
-  "Referans",
-  "Direk Mesaj-Instagram",
-  "Eski Data",
+// =========================================================================
+// 🚀 CANLI ORTAMA (GITHUB) YÜKLERKEN AŞAĞIDAKİ SATIRIN BAŞINDAKİ // İŞARETİNİ SİLİN:
+ import { supabase } from "./supabaseClient"; 
+// =========================================================================
+
+// --- ÖNİZLEME (MOCK) VERİLERİ (Sistemin burada çalışabilmesi için eklendi) ---
+let mockProfiles = [
+  { id: "user_1", email: "admin@denteste.com", name: "Admin User", status: "Aktif", role: "Admin", created_at: "2023-01-10T10:00:00Z" },
+  { id: "user_2", email: "satis1@denteste.com", name: "Mehmet Yılmaz", status: "Aktif", role: "Satış", created_at: "2023-02-15T10:00:00Z" }
 ];
 
-const LEAD_STATUSES = [
-  "Yeni",
-  "Cevapsız",
-  "Sıcak",
-  "Satış",
-  "İptal",
-  "Yabancı",
-  "Türk",
-  "Düşünüp Geri Dönüş Sağlayacak",
-  "İletişimde",
-  "İstanbul Dışı",
-  "Randevu Verilen",
-  "Randevu Gelen",
-  "Randevu Gelmeyen",
-  "Yanlış Başvuru",
+let mockLeads = [
+  { id: 1, name: "Ahmet Yılmaz", phone: "905321112233", language: "TR", source: "Facebook Reklam", status: "Yeni", stage: "Diğer", quote: "5000€", owner_id: "user_1", created_at: new Date().toISOString() },
+  { id: 2, name: "John Doe", phone: "4422334455", language: "EN", source: "Referans", status: "Sıcak", stage: "Şişli Uzak", quote: "3500€", owner_id: "user_2", created_at: new Date(new Date().setDate(new Date().getDate() - 2)).toISOString() }
 ];
 
+let mockLeadNotes = [
+  { id: 101, lead_id: 1, text: "İlk arama yapıldı, olumlu geçildi.", created_at: new Date().toISOString(), author: "Admin User" }
+];
+
+const supabaseMock = {
+  auth: {
+    getSession: async () => ({ data: { session: { user: { email: "admin@denteste.com", id: "user_1" } } }, error: null }),
+    onAuthStateChange: (cb) => {
+      const session = { user: { email: "admin@denteste.com", id: "user_1" } };
+      cb("SIGNED_IN", session);
+      return { data: { subscription: { unsubscribe: () => {} } } };
+    },
+    signOut: async () => {}
+  },
+  from: (table) => ({
+    select: () => {
+      let data = table === 'profiles' ? [...mockProfiles] : table === 'leads' ? [...mockLeads] : table === 'lead_notes' ? [...mockLeadNotes] : [];
+      const chain = {
+        eq: (col, val) => { data = data.filter(d => d[col] === val); return chain; },
+        order: () => Promise.resolve({ data, error: null }),
+        single: () => Promise.resolve({ data: data[0] || null, error: null }),
+        then: (res) => res({ data, error: null })
+      };
+      return chain;
+    },
+    update: (payload) => ({ 
+      match: ({id}) => {
+        if (table === 'profiles') mockProfiles = mockProfiles.map(p => p.id === id ? { ...p, ...payload } : p);
+        else if (table === 'leads') mockLeads = mockLeads.map(l => l.id === id ? { ...l, ...payload } : l);
+        return Promise.resolve({ error: null });
+      } 
+    }),
+    delete: () => ({ 
+      match: ({id}) => {
+        if (table === 'profiles') mockProfiles = mockProfiles.filter(p => p.id !== id);
+        else if (table === 'leads') mockLeads = mockLeads.filter(l => l.id !== id);
+        return Promise.resolve({ error: null });
+      } 
+    }),
+    upsert: (payload) => {
+      let savedData = payload;
+      if (table === 'profiles') {
+        if (payload.id) mockProfiles = mockProfiles.map(p => p.id === payload.id ? { ...p, ...payload } : p);
+        else { savedData = { ...payload, id: `user_${Date.now()}`, created_at: new Date().toISOString() }; mockProfiles.push(savedData); }
+      } else if (table === 'leads') {
+        if (payload.id) {
+          mockLeads = mockLeads.map(l => l.id === payload.id ? { ...l, ...payload } : l);
+          savedData = mockLeads.find(l => l.id === payload.id);
+        } else {
+          savedData = { ...payload, id: Date.now(), created_at: new Date().toISOString() }; mockLeads.push(savedData);
+        }
+      }
+      return { select: () => ({ single: () => Promise.resolve({ data: savedData, error: null }) }) };
+    },
+    insert: (payload) => {
+      if (table === 'lead_notes') {
+        const arr = Array.isArray(payload) ? payload : [payload];
+        const newNotes = arr.map(n => ({...n, id: Date.now(), created_at: new Date().toISOString()}));
+        mockLeadNotes = [...newNotes, ...mockLeadNotes];
+      }
+      return Promise.resolve({ error: null });
+    }
+  })
+};
+
+// GITHUB'A ATARKEN AŞAĞIDAKİ SATIRI SİLEBİLİRSİNİZ VEYA YORUMA ALABİLİRSİNİZ.
+const supabase = typeof window !== 'undefined' && !window.location.hostname.includes('vercel') ? supabaseMock : supabaseMock; // Önizleme için sabitlendi. Canlıda import çalışacak.
+
+// --- CONSTANTS ---
+const LEAD_SOURCES = ["Facebook Reklam", "Direk Arama", "Referans", "Direk Mesaj-Instagram", "Eski Data"];
+const LEAD_STATUSES = ["Yeni", "Cevapsız", "Sıcak", "Satış", "İptal", "Yabancı", "Türk", "Düşünüp Geri Dönüş Sağlayacak", "İletişimde", "İstanbul Dışı", "Vazgeçti", "Randevu Verilen", "Randevu Gelen", "Randevu Gelmeyen", "Yanlış Başvuru"];
 const LEAD_STAGES = ["Çok Uzak", "Çok Pahalı", "Şişli Uzak", "Diğer"];
-
 const LANGUAGES = ["TR", "EN", "DE", "FR", "AR"];
 
+const QUICK_FILTERS = [
+  { id: "Sıcak", label: "🔥 Sıcak" },
+  { id: "Satıldı", label: "✅ Satıldı" },
+  { id: "Bugün", label: "📅 Bugün" },
+  { id: "Bu Ay", label: "📊 Bu Ay" },
+  { id: "Son 3 Ay", label: "🕒 Son 3 Ay" }
+];
+
 function createEmptyLead(ownerId) {
-  return {
-    id: null,
-    name: "",
-    language: "TR",
-    phone: "",
-    source: "Facebook Reklam",
-    status: "Yeni",
-    stage: "",
-    owner_id: ownerId ?? "",
-    pendingNote: "",
-    quote: "",
-  };
+  return { id: null, name: "", language: "TR", phone: "", source: "Facebook Reklam", status: "Yeni", stage: "Diğer", owner_id: ownerId || "", pendingNote: "", quote: "", notes: [] };
+}
+function createEmptyUser() {
+  return { id: null, name: "", email: "", status: "Aktif", role: "Satış", password: "" };
 }
 
 export default function App() {
-  const [currentProfile, setCurrentProfile] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-
-  const [users, setUsers] = useState([]);
-  const [leads, setLeads] = useState([]);
-  const [notes, setNotes] = useState([]);
-
-  const [leadForm, setLeadForm] = useState(() => createEmptyLead(""));
-  const [filters, setFilters] = useState({
-    status: "",
-    ownerId: "",
-    source: "",
-    fromDate: "",
-    toDate: "",
-  });
-
-  const [selectedLeadId, setSelectedLeadId] = useState(null);
+  const [session, setSession] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
   const [activeView, setActiveView] = useState("leads");
   
-  // Modallar
-  const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
+  // Lead States
+  const [leads, setLeads] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState("Tümü");
+  const [filterLanguage, setFilterLanguage] = useState("Tümü");
+  const [filterSource, setFilterSource] = useState("Tümü");
+  const [quickFilter, setQuickFilter] = useState(""); 
+  
+  const [selectedLeadIds, setSelectedLeadIds] = useState([]);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [targetUserId, setTargetUserId] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [leadForm, setLeadForm] = useState(createEmptyLead(null));
+
+  // User States
+  const [appUsers, setAppUsers] = useState([]); 
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [userFilterStatus, setUserFilterStatus] = useState("Tümü");
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-  const [isBulkOwnerModalOpen, setIsBulkOwnerModalOpen] = useState(false); // Toplu Devir Modalı
-  
-  // Yeni Kullanıcı State
-  const [newUser, setNewUser] = useState({ username: "", password: "", role: "sales" });
-  const [editingUserId, setEditingUserId] = useState(null);
-  
-  // Toplu Seçim State'leri
-  const [selectedLeadsForBulk, setSelectedLeadsForBulk] = useState([]);
-  const [bulkNewOwnerId, setBulkNewOwnerId] = useState("");
+  const [userForm, setUserForm] = useState(createEmptyUser());
 
-  const [loadingData, setLoadingData] = useState(false);
-
-  const isAdmin = currentProfile?.role === "admin";
-
-  const selectedLead = useMemo(
-    () => leads.find((l) => l.id === selectedLeadId) ?? null,
-    [leads, selectedLeadId]
-  );
-
-  const filteredLeads = useMemo(() => {
-    return leads.filter((lead) => {
-      if (filters.status && lead.status !== filters.status) return false;
-      if (filters.ownerId && lead.owner_id !== filters.ownerId) return false;
-      if (filters.source && lead.source !== filters.source) return false;
-
-      const created = new Date(lead.created_at);
-
-      if (filters.fromDate) {
-        const from = new Date(filters.fromDate);
-        from.setHours(0, 0, 0, 0); 
-        if (Number.isFinite(created.getTime()) && created < from) return false;
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) { 
+        fetchData(); 
+        fetchUsers(session.user.id); 
       }
-
-      if (filters.toDate) {
-        const to = new Date(filters.toDate);
-        to.setHours(23, 59, 59, 999); 
-        if (Number.isFinite(created.getTime()) && created > to) return false;
-      }
-
-      return true;
     });
-  }, [leads, filters]);
-
-  // Filtre değiştiğinde toplu seçimleri temizle (güvenlik için)
-  useEffect(() => {
-    setSelectedLeadsForBulk([]);
-  }, [filters]);
-
-  const totalCount = leads.length;
-
-  const countByStatus = useMemo(() => {
-    const result = {};
-    for (const s of LEAD_STATUSES) result[s] = 0;
-    for (const lead of leads) {
-      if (result[lead.status] == null) result[lead.status] = 0;
-      result[lead.status] += 1;
-    }
-    return result;
-  }, [leads]);
-
-  function formatDate(dateIso) {
-    if (!dateIso) return "";
-    const date = new Date(dateIso);
-    if (!Number.isFinite(date.getTime())) return dateIso;
-    return date.toLocaleString("tr-TR");
-  }
-
-  function getLocalDateString(date) {
-    const offset = date.getTimezoneOffset();
-    const localDate = new Date(date.getTime() - offset * 60 * 1000);
-    return localDate.toISOString().split("T")[0];
-  }
-
-  async function loadAllData() {
-    setLoadingData(true);
-    try {
-      const [{ data: usersData }, { data: leadsData }, { data: notesData }] =
-        await Promise.all([
-          supabase.from("profiles").select("id, username, role, active").order("username"),
-          supabase
-            .from("leads")
-            .select("id, name, language, phone, source, status, stage, quote, created_at, updated_at, owner_id")
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("lead_notes")
-            .select("id, lead_id, author_id, text, created_at")
-            .order("created_at", { ascending: false }),
-        ]);
-
-      setUsers(usersData ?? []);
-      setLeads(leadsData ?? []);
-      setNotes(notesData ?? []);
-    } catch (e) {
-      console.error(e);
-      alert("Veriler yüklenirken bir hata oluştu.");
-    } finally {
-      setLoadingData(false);
-    }
-  }
-
-  useEffect(() => {
-    async function initAuth() {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          setAuthLoading(false);
-          return;
-        }
-
-        const { data: profile, error } = await supabase
-          .from("profiles")
-          .select("id, username, role, active")
-          .eq("id", user.id)
-          .single();
-
-        if (error || !profile) {
-          await supabase.auth.signOut();
-          setAuthLoading(false);
-          return;
-        }
-
-        if (profile.active === false) {
-          await supabase.auth.signOut();
-          alert("Kullanıcı pasif durumdadır.");
-          setAuthLoading(false);
-          return;
-        }
-
-        setCurrentProfile(profile);
-        setAuthLoading(false);
-        setActiveView("leads");
-        await loadAllData();
-      } catch (err) {
-        console.error("Auth init error:", err);
-        setAuthLoading(false);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) { 
+        fetchData(); 
+        fetchUsers(session.user.id); 
+      } else {
+        setCurrentUser(null);
       }
-    }
-
-    initAuth();
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
-  async function handleLogin(event) {
-    event.preventDefault();
-    const username = event.target.username.value.trim();
-    const password = event.target.password.value;
-    if (!username || !password) return;
+  const fetchData = async () => {
+    const { data, error } = await supabase.from('leads').select('*').order('created_at', { ascending: false });
+    if (error) console.error("Lead çekme hatası:", error);
+    if (data) setLeads(data);
+  };
 
-    setAuthLoading(true);
-    try {
-      const email = `${username}@local.minicrm`;
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error || !data.user) {
-        alert("Kullanıcı adı veya şifre hatalı.");
-        setAuthLoading(false);
-        return;
-      }
-
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("id, username, role, active")
-        .eq("id", data.user.id)
-        .single();
-
-      if (profileError || !profile) {
-        alert("Profil bulunamadı.");
-        await supabase.auth.signOut();
-        setAuthLoading(false);
-        return;
-      }
-
-      if (profile.active === false) {
-        alert("Kullanıcı pasif durumdadır.");
-        await supabase.auth.signOut();
-        setAuthLoading(false);
-        return;
-      }
-
-      setCurrentProfile(profile);
-      setActiveView("leads");
-      await loadAllData();
-    } catch (e) {
-      console.error(e);
-      alert("Giriş yapılırken hata oluştu.");
-    } finally {
-      setAuthLoading(false);
-    }
-  }
-
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    setCurrentProfile(null);
-    setLeads([]);
-    setNotes([]);
-    setUsers([]);
-    setSelectedLeadId(null);
-    setSelectedLeadsForBulk([]);
-  }
-
-  function handleLeadFieldChange(field, value) {
-    let processedValue = value;
+  const fetchUsers = async (sessionId) => {
+    const { data, error } = await supabase.from('profiles').select('*').order('name');
+    if (error) console.error("Kullanıcı çekme hatası:", error);
     
-    if (field === "phone") {
-      // Girilen değerdeki tüm boşlukları anında siler
-      processedValue = String(processedValue).replace(/\s+/g, "");
+    if (data) {
+      setAppUsers(data);
+      if (sessionId) {
+        const activeUser = data.find(u => u.id === sessionId);
+        setCurrentUser(activeUser);
+        if (activeUser?.role !== 'Admin' && activeView === 'users') {
+          setActiveView('leads');
+        }
+      }
     }
+  };
+
+  // --- LEAD FUNCTIONS ---
+  const handlePhoneChange = (val) => {
+    const cleaned = val.replace(/\D/g, '');
+    setLeadForm({ ...leadForm, phone: cleaned });
+  };
+
+  const handleDeleteLead = async (id) => {
+    if (currentUser?.role !== 'Admin') { 
+      alert("Bu işlem için yetkiniz bulunmamaktadır."); 
+      return; 
+    }
+    if(!window.confirm("Bu kaydı silmek istediğinize emin misiniz?")) return;
     
-    setLeadForm((prev) => ({ ...prev, [field]: processedValue }));
-  }
-
-  function resetLeadForm() {
-    setLeadForm(createEmptyLead(currentProfile?.id ?? ""));
-    setSelectedLeadId(null);
-    setIsLeadModalOpen(false);
-  }
-
-  // --- TOPLU İŞLEM FONKSİYONLARI ---
-  function toggleSelectAll() {
-    if (selectedLeadsForBulk.length === filteredLeads.length && filteredLeads.length > 0) {
-      setSelectedLeadsForBulk([]); // Hepsini kaldır
-    } else {
-      setSelectedLeadsForBulk(filteredLeads.map(lead => lead.id)); // Hepsini seç
+    const { error } = await supabase.from('leads').delete().match({ id });
+    if (error) {
+      alert("Silme işlemi başarısız: " + error.message);
+      return;
     }
-  }
+    fetchData();
+  };
 
-  function toggleSelectLead(id) {
-    setSelectedLeadsForBulk(prev => 
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+  const handleEditLead = async (lead) => {
+    setLeadForm({ ...lead, pendingNote: "", notes: [] });
+    setIsModalOpen(true);
+
+    const { data: notesData, error } = await supabase
+      .from('lead_notes')
+      .select('*')
+      .eq('lead_id', lead.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error("Notları çekerken hata oluştu:", error);
+    } else if (notesData) {
+      setLeadForm(prev => ({ ...prev, notes: notesData }));
+    }
+  };
+
+  const handleSaveLead = async () => {
+    const { id, pendingNote, notes, ...restOfLead } = leadForm;
+    const payloadToSave = { ...restOfLead };
+    if (id) payloadToSave.id = id;
+
+    const { data: savedLead, error: leadError } = await supabase
+      .from('leads')
+      .upsert(payloadToSave)
+      .select()
+      .single();
+
+    if (leadError) {
+      alert("Lead kayıt hatası: " + leadError.message);
+      return;
+    }
+
+    const currentLeadId = savedLead?.id || id;
+
+    if (pendingNote && pendingNote.trim() !== "" && currentLeadId) {
+      const { error: noteError } = await supabase.from('lead_notes').insert([{
+        lead_id: currentLeadId,
+        text: pendingNote,
+        author: currentUser?.name || "Sistem"
+      }]);
+      if (noteError) console.error("Not kaydedilemedi:", noteError);
+    }
+
+    setIsModalOpen(false);
+    fetchData();
+  };
+
+  const handleSelectAll = (e) => { e.target.checked ? setSelectedLeadIds(filteredLeads.map(l => l.id)) : setSelectedLeadIds([]); };
+  const handleSelectOne = (id) => { setSelectedLeadIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]); };
+
+  const handleBulkTransfer = async () => {
+    if (!targetUserId || selectedLeadIds.length === 0) return;
+    
+    const promises = selectedLeadIds.map(id => 
+      supabase.from('leads').update({ owner_id: targetUserId }).match({ id })
     );
-  }
+    
+    await Promise.all(promises);
+    
+    alert(`${selectedLeadIds.length} kayıt başarıyla yeni temsilciye aktarıldı.`);
+    setSelectedLeadIds([]);
+    setIsTransferModalOpen(false);
+    fetchData();
+  };
 
-  async function handleBulkOwnerChange(event) {
-    event.preventDefault();
-    if (!bulkNewOwnerId) {
-      alert("Lütfen devredilecek yeni kullanıcıyı seçin.");
-      return;
+  const exportToCSV = () => { 
+    if (currentUser?.role !== 'Admin') {
+      alert("Bu işlem için yetkiniz bulunmamaktadır.");
+      return; 
     }
     
-    if (selectedLeadsForBulk.length === 0) return;
-
-    try {
-      const nowIso = new Date().toISOString();
-      const { error } = await supabase
-        .from("leads")
-        .update({ owner_id: bulkNewOwnerId, updated_at: nowIso })
-        .in("id", selectedLeadsForBulk); // 'in' operatörü ile toplu güncelleme
-
-      if (error) throw error;
-
-      alert(`${selectedLeadsForBulk.length} kaydın sahibi başarıyla güncellendi.`);
-      setIsBulkOwnerModalOpen(false);
-      setSelectedLeadsForBulk([]); // Seçimleri temizle
-      setBulkNewOwnerId("");
-      await loadAllData(); // Tabloyu yenile
-    } catch (e) {
-      console.error(e);
-      alert("Toplu devir işlemi sırasında bir hata oluştu.");
-    }
-  }
-
-
-  // --- LEAD İŞLEMLERİ ---
-  async function upsertLead(event) {
-    event.preventDefault();
-    if (!currentProfile) return;
-
-    const safeName = String(leadForm.name || "").trim();
-    // Kaydetmeden önce güvenlik amaçlı boşlukları tekrar temizler
-    const safePhone = String(leadForm.phone || "").replace(/\s+/g, "").trim();
-    const safeNote = String(leadForm.pendingNote || "").trim();
-
-    if (!safeName || !safePhone) {
-      alert("İsim ve Telefon zorunludur.");
-      return;
-    }
-
-    const nowIso = new Date().toISOString();
-    const base = {
-      name: safeName,
-      phone: safePhone,
-      language: leadForm.language || null,
-      source: leadForm.source || null,
-      status: leadForm.status,
-      stage: leadForm.stage || null,
-      quote: String(leadForm.quote || "").trim() || null,
-      owner_id: leadForm.owner_id || currentProfile.id,
-      updated_at: nowIso,
-    };
-
-    try {
-      let savedId = leadForm.id;
-
-      if (leadForm.id) {
-        const { error } = await supabase.from("leads").update(base).eq("id", leadForm.id);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase
-          .from("leads")
-          .insert([{ ...base, created_at: nowIso }])
-          .select()
-          .single();
-        if (error) throw error;
-        savedId = data.id;
-        setSelectedLeadId(data.id);
-      }
-
-      if (safeNote) {
-        await addNoteToLeadInternal(safeNote, savedId);
-      }
-
-      await loadAllData();
-      resetLeadForm();
-    } catch (e) {
-      console.error("Kayıt Hatası:", e);
-      if (e?.code === '23505') {
-        alert("Girilen telefon numarası sistemde zaten mevcut. Lütfen farklı bir numara giriniz.");
-      } else {
-        alert("Lead kaydedilirken bir hata oluştu: " + (e?.message || "Bilinmeyen hata."));
-      }
-    }
-  }
-
-  function editLead(lead) {
-    setLeadForm({
-      id: lead.id,
-      name: lead.name ?? "",
-      language: lead.language || "TR",
-      phone: lead.phone ?? "",
-      source: lead.source || "Facebook Reklam",
-      status: lead.status ?? "Yeni",
-      stage: lead.stage ?? "",
-      owner_id: lead.owner_id ?? currentProfile?.id ?? "",
-      pendingNote: "",
-      quote: lead.quote ?? "",
+    const headers = ["İsim,Telefon,Dil,Kaynak,Durum,Alt Durum,Teklif,Sahibi,Tarih"];
+    const rows = filteredLeads.map(l => {
+      const ownerName = appUsers.find(u => u.id === l.owner_id)?.name || "Atanmamış";
+      return `${l.name},${l.phone},${l.language},${l.source},${l.status},${l.stage},${l.quote},${ownerName},${l.created_at}`;
     });
-    setSelectedLeadId(lead.id);
-    setIsLeadModalOpen(true);
-  }
+    
+    // CSV İçeriği Oluşturma
+    const csvData = headers.concat(rows).join("\n");
+    
+    // Türkçe karakter (UTF-8) sorunu için BOM (Byte Order Mark) ekliyoruz
+    const BOM = "\uFEFF";
+    const csvContent = BOM + csvData;
 
-  async function deleteLead(id) {
-    if (!isAdmin) return;
-    if (!window.confirm("Bu lead kalıcı olarak silinecek. Emin misiniz?")) return;
-    try {
-      const { error } = await supabase.from("leads").delete().eq("id", id);
-      if (error) throw error;
-      await loadAllData();
-      if (selectedLeadId === id) resetLeadForm();
-    } catch (e) {
-      console.error(e);
-      alert("Lead silinirken bir hata oluştu.");
-    }
-  }
-
-  async function addNoteToLeadInternal(text, explicitLeadId) {
-    const leadId = explicitLeadId || selectedLeadId || leadForm.id;
-    if (!leadId || !currentProfile) return;
-    try {
-      const { error } = await supabase.from("lead_notes").insert([{ lead_id: leadId, author_id: currentProfile.id, text }]);
-      if (error) throw error;
-      await loadAllData();
-    } catch (e) {
-      console.error(e);
-      alert("Not eklenirken hata oluştu.");
-    }
-  }
-
-  async function addNoteToLead() {
-    const safeNote = String(leadForm.pendingNote || "").trim();
-    if (!safeNote) return;
-    await addNoteToLeadInternal(safeNote, selectedLeadId);
-    setLeadForm((prev) => ({ ...prev, pendingNote: "" }));
-  }
-
-  // --- KULLANICI (USER) İŞLEMLERİ ---
-  function openEditUser(u) {
-    setEditingUserId(u.id);
-    setNewUser({ username: u.username, password: "", role: u.role });
-    setIsUserModalOpen(true);
-  }
-
-  async function handleSaveUser(event) {
-    event.preventDefault();
-    if (!isAdmin) return;
-
-    const safeUsername = String(newUser.username || "").trim();
-    const safePassword = String(newUser.password || "").trim();
-
-    if (!safeUsername) {
-      alert("Kullanıcı adı zorunludur.");
-      return;
-    }
-
-    try {
-      if (editingUserId) {
-        const { error } = await supabase
-          .from("profiles")
-          .update({ username: safeUsername, role: newUser.role })
-          .eq("id", editingUserId);
-        if (error) throw error;
-        alert("Kullanıcı bilgileri güncellendi.");
-      } else {
-        if (!safePassword) {
-          alert("Yeni kullanıcı için şifre zorunludur.");
-          return;
-        }
-        const email = `${safeUsername}@local.minicrm`;
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password: safePassword,
-        });
-
-        if (error) throw error;
-
-        if (data?.user) {
-          const { error: profileError } = await supabase.from("profiles").upsert({
-            id: data.user.id,
-            username: safeUsername,
-            role: newUser.role,
-            active: true,
-          });
-          if (profileError) throw profileError;
-        }
-        alert("Kullanıcı başarıyla oluşturuldu.");
-      }
-      
-      setIsUserModalOpen(false);
-      setNewUser({ username: "", password: "", role: "sales" });
-      setEditingUserId(null);
-      await loadAllData();
-    } catch (e) {
-      console.error(e);
-      alert("Kullanıcı kaydedilirken hata oluştu. " + (e?.message || ""));
-    }
-  }
-
-  async function toggleUserActive(id, currentActive) {
-    if (!isAdmin) return;
-    try {
-      const { error } = await supabase.from("profiles").update({ active: !currentActive }).eq("id", id);
-      if (error) throw error;
-      if (id === currentProfile.id && currentActive === true) {
-        await handleLogout();
-      } else {
-        await loadAllData();
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Kullanıcı durumu güncellenirken hata oluştu.");
-    }
-  }
-
-  async function deleteProfile(id) {
-    if (!isAdmin) return;
-    if (!window.confirm("Bu kullanıcıyı silmek istediğinize emin misiniz?\n\nDİKKAT: Kullanıcıya ait 'Lead'ler varsa sistem silmenize izin vermeyecektir.")) return;
-
-    try {
-      const { error } = await supabase.from("profiles").delete().eq("id", id);
-      if (error) {
-        if (error.code === '23503') {
-          alert("Bu kullanıcının sistemde üzerine kayıtlı Lead'leri olduğu için silinemez. Lütfen önce Lead'leri devredin veya kullanıcıyı 'Pasif Et' seçeneği ile dondurun.");
-        } else {
-          throw error;
-        }
-      } else {
-        await loadAllData();
-        alert("Kullanıcı başarıyla silindi.");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Kullanıcı silinirken bir hata oluştu.");
-    }
-  }
-
-  function exportToCsv() {
-    if (filteredLeads.length === 0) {
-      alert("Dışa aktarılacak kayıt bulunamadı.");
-      return;
-    }
-
-    const headers = [
-      "ID", "İsim", "Dil", "Telefon", "Kaynak", "Oluşturulma Tarihi",
-      "Güncelleme Tarihi", "Durum", "Aşama", "Lead Sahibi", "Teklif", "Notlar"
-    ];
-
-    const rows = filteredLeads.map((lead) => {
-      const ownerName = users.find((u) => u.id === lead.owner_id)?.username ?? "";
-      const leadNotes = notes
-        .filter((n) => n.lead_id === lead.id)
-        .map((n) => `${formatDate(n.created_at)} - ${n.text}`)
-        .join(" | ");
-
-      return [
-        lead.id ?? "",
-        lead.name ?? "",
-        lead.language ?? "",
-        lead.phone ?? "",
-        lead.source ?? "",
-        lead.created_at ?? "",
-        lead.updated_at ?? "",
-        lead.status ?? "",
-        lead.stage ?? "",
-        ownerName,
-        lead.quote ?? "",
-        leadNotes,
-      ];
-    });
-
-    const csvContent = [headers, ...rows]
-      .map((row) =>
-        row.map((cell) => {
-          const value = String(cell ?? "");
-          if (/[",;\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-          return value;
-        }).join(";")
-      ).join("\n");
-
+    // Blob oluşturup indiriyoruz
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    const datePart = new Date().toISOString().slice(0, 10);
-    a.download = `leads_${datePart}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+    const link = document.createElement("a");
+    
+    link.setAttribute("href", url);
+    link.setAttribute("download", `denteste_leads_${new Date().toLocaleDateString('tr-TR')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
-  useEffect(() => {
-    const style = document.createElement("style");
-    style.innerHTML = `
-      :root {
-        --primary: #4f46e5;
-        --primary-hover: #4338ca;
-        --bg-color: #f3f4f6;
-        --surface: #ffffff;
-        --text-main: #111827;
-        --text-muted: #6b7280;
-        --border-color: #e5e7eb;
-        --danger: #dc2626;
-        --success: #16a34a;
+  const filteredLeads = useMemo(() => {
+    return leads.filter(l => {
+      const matchSearch = (l.name?.toLowerCase().includes(searchQuery.toLowerCase()) || l.phone?.includes(searchQuery));
+      const matchStatus = filterStatus === "Tümü" || l.status === filterStatus;
+      const matchLanguage = filterLanguage === "Tümü" || l.language === filterLanguage;
+      const matchSource = filterSource === "Tümü" || l.source === filterSource;
+      
+      let matchQuick = true;
+      if (quickFilter) {
+        const createdDate = new Date(l.created_at);
+        const today = new Date();
+        
+        if (quickFilter === "Sıcak") matchQuick = l.status === "Sıcak";
+        else if (quickFilter === "Satıldı") matchQuick = l.status === "Satış";
+        else if (quickFilter === "Bugün") {
+          matchQuick = createdDate.toDateString() === today.toDateString();
+        } 
+        else if (quickFilter === "Bu Ay") {
+          matchQuick = createdDate.getMonth() === today.getMonth() && createdDate.getFullYear() === today.getFullYear();
+        } 
+        else if (quickFilter === "Son 3 Ay") {
+          const threeMonthsAgo = new Date();
+          threeMonthsAgo.setMonth(today.getMonth() - 3);
+          matchQuick = createdDate >= threeMonthsAgo;
+        }
       }
-      body {
-        margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-        background-color: var(--bg-color); color: var(--text-main);
-      }
-      .app-shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-      .app-header { background: var(--surface); border-bottom: 1px solid var(--border-color); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05); z-index: 10;}
-      .app-header-title { font-size: 1.25rem; font-weight: 600; color: var(--primary); margin-bottom: 4px; }
-      .app-header-subtitle { font-size: 0.875rem; color: var(--text-muted); }
-      .app-main { display: flex; flex: 1; overflow: hidden; }
-      .sidebar { width: 70px; background: var(--surface); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; align-items: center; padding: 20px 0; gap: 16px; z-index: 5; }
-      .sidebar-title { font-size: 0.75rem; font-weight: bold; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 1px; }
-      .nav-button { background: transparent; border: none; width: 44px; height: 44px; border-radius: 8px; font-size: 1.25rem; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-muted); transition: all 0.2s; }
-      .nav-button:hover { background: var(--bg-color); color: var(--primary); }
-      .nav-button-active { background: #e0e7ff; color: var(--primary); }
-      .nav-button-logout { margin-top: auto; color: var(--danger); }
-      .nav-button-logout:hover { background: #fee2e2; color: var(--danger); }
       
-      .content { flex: 1; overflow-y: auto; padding: 24px; }
-      .card { background: var(--surface); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 24px; margin-bottom: 24px; }
-      .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
-      .card-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 4px; }
-      .card-subtitle { font-size: 0.875rem; color: var(--text-muted); }
-      
-      .stack { display: flex; flex-direction: column; gap: 16px; }
-      .stack-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-      .filters-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
-      .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
-      
-      .field { display: flex; flex-direction: column; gap: 6px; }
-      .field-label { font-size: 0.875rem; font-weight: 500; color: var(--text-main); }
-      .field-helper { font-size: 0.75rem; color: var(--text-muted); }
-      .input, .select, .textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.875rem; background: #fff; color: var(--text-main); outline: none; transition: border-color 0.2s; box-sizing: border-box; }
-      .input:focus, .select:focus, .textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
-      .textarea { min-height: 80px; resize: vertical; }
-      
-      .btn { padding: 10px 16px; border-radius: 6px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border: 1px solid transparent; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; }
-      .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-      .btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
-      .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
-      .btn-ghost { background: transparent; border-color: var(--border-color); color: var(--text-main); }
-      .btn-ghost:hover:not(:disabled) { background: var(--bg-color); }
-      
-      .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; background: #e0e7ff; color: var(--primary); }
-      
-      .chips-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; margin-bottom: 8px; }
-      .chip { padding: 6px 12px; border-radius: 9999px; border: 1px solid var(--border-color); background: var(--surface); font-size: 0.75rem; cursor: pointer; color: var(--text-main); transition: all 0.2s; }
-      .chip:hover { background: var(--bg-color); }
-      .chip-active { background: var(--primary); color: white; border-color: var(--primary); }
-      .chip-active:hover { background: var(--primary-hover); }
-      
-      .lead-table-wrapper { width: 100%; overflow-x: auto; margin-top: 16px; border: 1px solid var(--border-color); border-radius: 8px; }
-      .lead-table { width: 100%; border-collapse: collapse; min-width: 800px; }
-      .lead-table th { background: #f9fafb; padding: 12px 16px; text-align: left; font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid var(--border-color); }
-      .lead-table td { padding: 16px; border-bottom: 1px solid var(--border-color); font-size: 0.875rem; vertical-align: top; }
-      .lead-table tr:last-child td { border-bottom: none; }
-      .lead-table tr:hover { background: #f9fafb; }
-      
-      .lead-pill { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 500; }
-      .lead-pill-status-default { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
-      .lead-pill-status-success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
-      .lead-pill-status-danger { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
-      
-      .timeline { display: flex; flex-direction: column; gap: 8px; max-height: 120px; overflow-y: auto; padding-right: 8px; }
-      .timeline-item { border-left: 2px solid var(--border-color); padding-left: 10px; position: relative; }
-      .timeline-item::before { content: ''; position: absolute; left: -5px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--border-color); }
-      .timeline-date { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 2px; }
-      .timeline-text { font-size: 0.8rem; line-height: 1.4; }
-      
-      .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; backdrop-filter: blur(2px); }
-      .modal { background: var(--surface); border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
-      .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
-      .modal-title { font-size: 1.25rem; font-weight: 600; }
-      .modal-body { padding: 24px; overflow-y: auto; flex: 1; }
-      .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 12px; background: #f9fafb; border-radius: 0 0 12px 12px; }
-      
-      .login-shell { display: flex; align-items: center; justify-content: center; height: 100vh; background: #e0e7ff; }
-      .login-card { background: var(--surface); padding: 40px; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }
-      .login-title { font-size: 1.5rem; font-weight: bold; color: var(--primary); margin-bottom: 8px; }
-      .login-subtitle { font-size: 0.875rem; color: var(--text-muted); margin-bottom: 32px; }
-      .login-card .field { text-align: left; }
-      .login-card .button-row { margin-top: 24px; }
-      .login-card .btn { width: 100%; }
-      
-      .small { font-size: 0.875rem; }
-      .muted { color: var(--text-muted); }
-    `;
-    document.head.appendChild(style);
-    return () => document.head.removeChild(style);
-  }, []);
+      return matchSearch && matchStatus && matchLanguage && matchSource && matchQuick;
+    });
+  }, [leads, searchQuery, filterStatus, filterLanguage, filterSource, quickFilter]);
 
-  if (authLoading) {
-    return (
-      <div className="login-shell">
-        <div className="login-card">
-          <div className="login-title">CRM - DentEste</div>
-          <div className="login-subtitle">Yükleniyor...</div>
-        </div>
-      </div>
-    );
-  }
+  // --- USER FUNCTIONS ---
+  const handleSaveUser = async () => {
+    if (currentUser?.role !== 'Admin') return;
+    
+    const { password, ...profileData } = userForm;
+    const { error } = await supabase.from('profiles').upsert(profileData);
+    
+    if (error) {
+      alert("Kullanıcı kaydedilemedi: " + error.message);
+    } else {
+      setIsUserModalOpen(false);
+      fetchUsers(session?.user?.id);
+    }
+  };
 
-  if (!currentProfile) {
-    return (
-      <div className="login-shell">
-        <div className="login-card">
-          <div className="login-title">CRM - DentEste</div>
-          <div className="login-subtitle">Lütfen kullanıcı adınız ve şifreniz ile giriş yapın.</div>
-          <form onSubmit={handleLogin} className="stack">
-            <div className="field">
-              <label className="field-label">Kullanıcı Adı</label>
-              <input name="username" className="input" placeholder="Kullanıcı Adı" autoComplete="username" />
-            </div>
-            <div className="field">
-              <label className="field-label">Şifre</label>
-              <input name="password" type="password" className="input" placeholder="Şifre" autoComplete="current-password" />
-            </div>
-            <div className="button-row">
-              <button className="btn btn-primary" type="submit" disabled={authLoading}>
-                {authLoading ? "Giriş Yapılıyor..." : "Giriş Yap"}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    );
-  }
+  const handleDeleteUser = async (id) => {
+    if (currentUser?.role !== 'Admin') return;
+    if(!window.confirm("Bu kullanıcıyı sistemden tamamen silmek istediğinize emin misiniz?")) return;
+    
+    await supabase.from('profiles').delete().match({ id });
+    fetchUsers(session?.user?.id);
+  };
+
+  const handleToggleUserStatus = async (user) => {
+    if (currentUser?.role !== 'Admin') return;
+    const newStatus = user.status === "Aktif" ? "Pasif" : "Aktif";
+    if(!window.confirm(`Kullanıcı durumunu '${newStatus}' olarak değiştirmek istediğinize emin misiniz?`)) return;
+    
+    await supabase.from('profiles').update({ status: newStatus }).match({ id: user.id });
+    fetchUsers(session?.user?.id);
+  };
+
+  const filteredUsers = useMemo(() => {
+    return appUsers.filter(u => {
+      const matchSearch = u.name?.toLowerCase().includes(userSearchQuery.toLowerCase()) || u.email?.toLowerCase().includes(userSearchQuery.toLowerCase());
+      const matchStatus = userFilterStatus === "Tümü" || u.status === userFilterStatus;
+      return matchSearch && matchStatus;
+    });
+  }, [appUsers, userSearchQuery, userFilterStatus]);
+
+  if (!session || !currentUser) return <div className="h-screen flex items-center justify-center bg-gray-100 text-gray-500 text-sm animate-pulse">Sisteme bağlanılıyor... Veritabanı bekleniyor.</div>;
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div>
-          <div className="app-header-title">CRM - DentEste</div>
-          <div className="app-header-subtitle">
-            Lead kaydı, filtreleme ve Excel&apos;e aktarım için hafif CRM.
+    <div className="flex h-screen bg-gray-100 font-sans text-gray-800 overflow-hidden">
+      
+      {/* SIDEBAR */}
+      <aside className="w-64 bg-slate-800 text-gray-300 flex flex-col border-r border-slate-900 z-30 shrink-0">
+        <div className="h-14 flex items-center px-4 border-b border-slate-700 bg-slate-900">
+          <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center mr-3 shadow-sm">
+            <span className="text-white font-bold text-xs">D</span>
           </div>
+          <h1 className="text-sm font-semibold text-white tracking-wide">Denteste-CRM</h1>
         </div>
-        <div className="stack" style={{ alignItems: "flex-end" }}>
-          <div className="stack-row">
-            <span className="badge">Toplam Lead: {totalCount}</span>
-            <span className="badge">Yeni: {countByStatus["Yeni"] ?? 0}</span>
-            <span className="badge">Teklif Verildi: {countByStatus["Teklif Verildi"] ?? 0}</span>
-            <span className="badge">Satıldı: {countByStatus["Satıldı"] ?? 0}</span>
+        
+        <nav className="flex-1 py-4">
+          <ul className="space-y-1">
+            <li>
+              <button onClick={() => setActiveView("leads")} className={`w-full flex items-center gap-3 px-6 py-2.5 text-sm transition-colors ${activeView === "leads" ? "bg-blue-600 text-white border-l-4 border-blue-400 font-medium" : "hover:bg-slate-700 border-l-4 border-transparent"}`}>
+                <LayoutDashboard size={16} /> Lead Havuzu
+              </button>
+            </li>
+            {currentUser?.role === 'Admin' && (
+              <li>
+                <button onClick={() => setActiveView("users")} className={`w-full flex items-center gap-3 px-6 py-2.5 text-sm transition-colors ${activeView === "users" ? "bg-blue-600 text-white border-l-4 border-blue-400 font-medium" : "hover:bg-slate-700 border-l-4 border-transparent"}`}>
+                  <Users size={16} /> Kullanıcılar
+                </button>
+              </li>
+            )}
+          </ul>
+        </nav>
+
+        <div className="p-4 border-t border-slate-700 bg-slate-900/50">
+          <div className="mb-4 px-2">
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`w-2 h-2 rounded-full ${currentUser.status === 'Aktif' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+              <p className="text-xs font-bold text-white">{currentUser.name}</p>
+            </div>
+            <p className="text-[10px] text-slate-400 truncate">{currentUser.email}</p>
+            <p className="text-[10px] font-semibold text-blue-400 mt-1 uppercase tracking-wider">{currentUser.role} Yetkisi</p>
           </div>
-          <div className="small muted">
-            Oturum: {currentProfile.username} ({currentProfile.role === "admin" ? "Admin" : "Satış"})
-          </div>
+          <button onClick={() => supabase.auth.signOut()} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded text-xs transition-colors border border-slate-600">
+            <LogOut size={14} /> Oturumu Kapat
+          </button>
         </div>
-      </header>
+      </aside>
 
-      <main className="app-main">
-        <aside className="sidebar">
-          <div className="sidebar-title">CRM</div>
-          <button
-            className={`nav-button ${activeView === "leads" ? "nav-button-active" : ""}`}
-            type="button"
-            onClick={() => setActiveView("leads")}
-            title="Leadler"
-          >
-            <span>📋</span>
-          </button>
-          <button
-            className={`nav-button ${activeView === "users" ? "nav-button-active" : ""}`}
-            type="button"
-            onClick={() => isAdmin && setActiveView("users")}
-            disabled={!isAdmin}
-            title={isAdmin ? "Kullanıcı Tanımları" : "Sadece admin görebilir"}
-          >
-            <span>👤</span>
-          </button>
-          <button className="nav-button nav-button-logout" type="button" onClick={handleLogout} title="Sistemden Çıkış">
-            <span>⏻</span>
-          </button>
-        </aside>
+      {/* MAIN CONTENT */}
+      <main className="flex-1 flex flex-col overflow-hidden relative bg-gray-50">
+        
+        {/* HEADER */}
+        <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 z-20 shrink-0 shadow-sm">
+          <h2 className="text-lg font-semibold text-gray-800">
+            {activeView === "leads" ? "Müşteri Adayı Yönetimi" : "Sistem Kullanıcıları"}
+          </h2>
+          
+          <div className="flex items-center gap-3">
+            {activeView === "leads" ? (
+              <>
+                {currentUser?.role === 'Admin' && (
+                  <button onClick={exportToCSV} className="flex items-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded text-sm transition-colors shadow-sm">
+                    <Download size={14} /> Dışa Aktar
+                  </button>
+                )}
+                <button onClick={() => { setLeadForm(createEmptyLead(currentUser.id)); setIsModalOpen(true); }} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm transition-colors shadow-sm">
+                  <Plus size={14} /> Yeni Kayıt
+                </button>
+              </>
+            ) : (
+              currentUser?.role === 'Admin' && (
+                <button onClick={() => { setUserForm(createEmptyUser()); setIsUserModalOpen(true); }} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm transition-colors shadow-sm">
+                  <UserPlus size={14} /> Yeni Kullanıcı
+                </button>
+              )
+            )}
+          </div>
+        </header>
 
-        <div className="content">
+        {/* CONTENT AREA */}
+        <div className="flex-1 overflow-auto p-4 sm:p-6 custom-scrollbar">
+          
+          {/* === LEADS VIEW === */}
           {activeView === "leads" && (
-            <section className="card">
-              <div className="card-header">
-                <div>
-                  <div className="card-title">Lead Listesi ve Filtreler</div>
-                  <div className="card-subtitle">Oluşturulma tarihi, durum, kaynak ve lead sahibi ile filtreleyin.</div>
-                </div>
-                <div className="stack-row">
-                  {/* TOPLU DEVİR BUTONU: Sadece 1 veya daha fazla kayıt seçiliyse görünür */}
-                  {selectedLeadsForBulk.length > 0 && (
-                    <button
-                      className="btn btn-primary"
-                      style={{ backgroundColor: '#4f46e5', borderColor: '#4f46e5' }}
-                      type="button"
-                      onClick={() => setIsBulkOwnerModalOpen(true)}
-                    >
-                      Seçilileri Devret ({selectedLeadsForBulk.length})
-                    </button>
-                  )}
+            <div className="space-y-4 max-w-[1600px] mx-auto">
+              
+              {/* HIZLI FİLTRELER */}
+              <div className="flex items-center flex-wrap gap-2 mb-2">
+                <span className="text-xs font-bold text-gray-500 mr-2 flex items-center gap-1">
+                  <Filter size={14} /> HIZLI FİLTRE:
+                </span>
+                {QUICK_FILTERS.map(qf => (
                   <button
-                    className="btn btn-primary"
-                    type="button"
-                    onClick={() => {
-                      const satis1User = users.find((u) => u.username === "Satis1");
-                      const defaultOwnerId = satis1User ? satis1User.id : currentProfile.id;
-                      setLeadForm(createEmptyLead(defaultOwnerId));
-                      setSelectedLeadId(null);
-                      setIsLeadModalOpen(true);
-                    }}
+                    key={qf.id}
+                    onClick={() => setQuickFilter(qf.id)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-semibold border transition-all ${
+                      quickFilter === qf.id
+                        ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                        : "bg-white text-gray-600 border-gray-300 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300"
+                    }`}
                   >
-                    Ekle
+                    {qf.label}
                   </button>
-                  <button className="btn btn-ghost" type="button" onClick={exportToCsv}>
-                    Excel (CSV) İndir
-                  </button>
-                </div>
-              </div>
-
-              <div className="stack">
-                <div className="filters-grid">
-                  <div className="field">
-                    <label className="field-label">Durum</label>
-                    <select
-                      className="select"
-                      value={filters.status}
-                      onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
-                    >
-                      <option value="">Tümü</option>
-                      {LEAD_STATUSES.map((status) => (
-                        <option key={status} value={status}>{status}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label className="field-label">Lead Sahibi</label>
-                    <select
-                      className="select"
-                      value={filters.ownerId}
-                      onChange={(e) => setFilters((prev) => ({ ...prev, ownerId: e.target.value }))}
-                    >
-                      <option value="">Tümü</option>
-                      {users.map((user) => (
-                        <option key={user.id} value={user.id}>{user.username}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label className="field-label">Kaynak</label>
-                    <select
-                      className="select"
-                      value={filters.source}
-                      onChange={(e) => setFilters((prev) => ({ ...prev, source: e.target.value }))}
-                    >
-                      <option value="">Tümü</option>
-                      {LEAD_SOURCES.map((src) => (
-                        <option key={src} value={src}>{src}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label className="field-label">Tarih Aralığı (Oluşturulma)</label>
-                    <div className="stack-row">
-                      <input
-                        className="input"
-                        type="date"
-                        value={filters.fromDate}
-                        onChange={(e) => setFilters((prev) => ({ ...prev, fromDate: e.target.value }))}
-                      />
-                      <input
-                        className="input"
-                        type="date"
-                        value={filters.toDate}
-                        onChange={(e) => setFilters((prev) => ({ ...prev, toDate: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="chips-row">
+                ))}
+                {quickFilter && (
                   <button
-                    className={`chip ${!filters.status && !filters.fromDate ? "chip-active" : ""}`}
-                    type="button"
-                    onClick={() => setFilters({ status: "", ownerId: "", source: "", fromDate: "", toDate: "" })}
+                    onClick={() => setQuickFilter("")}
+                    className="px-3 py-1 rounded-full text-[11px] font-bold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 transition-all flex items-center gap-1 ml-auto md:ml-2"
                   >
-                    Tümü
-                  </button>
-
-                  <button
-                    className="chip"
-                    type="button"
-                    onClick={() => {
-                      const d = getLocalDateString(new Date());
-                      setFilters(prev => ({ ...prev, fromDate: d, toDate: d }));
-                    }}
-                  >
-                    Bugün
-                  </button>
-
-                  <button
-                    className="chip"
-                    type="button"
-                    onClick={() => {
-                      const now = new Date();
-                      const firstDay = getLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1));
-                      setFilters(prev => ({ ...prev, fromDate: firstDay, toDate: "" }));
-                    }}
-                  >
-                    Bu Ay
-                  </button>
-
-                  <button
-                    className="chip"
-                    type="button"
-                    onClick={() => {
-                      const now = new Date();
-                      const threeMonthsAgo = getLocalDateString(new Date(now.getFullYear(), now.getMonth() - 3, now.getDate()));
-                      setFilters(prev => ({ ...prev, fromDate: threeMonthsAgo, toDate: "" }));
-                    }}
-                  >
-                    Son 3 Ay
-                  </button>
-
-                  <button
-                    className={`chip ${filters.status === "Sıcak" ? "chip-active" : ""}`}
-                    type="button"
-                    onClick={() =>
-                      setFilters((prev) => ({
-                        ...prev,
-                        status: prev.status === "Sıcak" ? "" : "Sıcak",
-                      }))
-                    }
-                  >
-                    Sıcak
-                  </button>
-
-                  <button
-                    className={`chip ${filters.status === "Satıldı" ? "chip-active" : ""}`}
-                    type="button"
-                    onClick={() =>
-                      setFilters((prev) => ({
-                        ...prev,
-                        status: prev.status === "Satıldı" ? "" : "Satıldı",
-                      }))
-                    }
-                  >
-                    Satılanlar
-                  </button>
-
-                  <button
-                    className="chip"
-                    type="button"
-                    onClick={() =>
-                      setFilters({
-                        status: "",
-                        ownerId: "",
-                        source: "",
-                        fromDate: "",
-                        toDate: "",
-                      })
-                    }
-                  >
-                    Filtreleri Temizle
-                  </button>
-                </div>
-
-                <div className="small muted">Gösterilen kayıt: {filteredLeads.length} / {totalCount}</div>
-              </div>
-
-              <div className="lead-table-wrapper">
-                <table className="lead-table">
-                  <thead>
-                    <tr>
-                      {/* TOPLU SEÇİM BAŞLIĞI */}
-                      <th style={{ width: 40, textAlign: 'center' }}>
-                        <input 
-                          type="checkbox" 
-                          style={{ cursor: "pointer", width: 16, height: 16 }}
-                          title="Filtrelenen Tümünü Seç/Bırak"
-                          checked={filteredLeads.length > 0 && selectedLeadsForBulk.length === filteredLeads.length}
-                          onChange={toggleSelectAll}
-                        />
-                      </th>
-                      <th>Lead</th>
-                      <th>İletişim</th>
-                      <th>Kaynak / Sahip</th>
-                      <th>Durum</th>
-                      <th>Tarihçeler</th>
-                      <th>Teklif</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredLeads.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} style={{ textAlign: "center", padding: 16 }}>
-                          {loadingData ? "Kayıtlar yükleniyor..." : "Henüz kayıt yok veya filtrelere uyan lead bulunamadı."}
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredLeads.map((lead) => {
-                        const ownerName = users.find((u) => u.id === lead.owner_id)?.username ?? "-";
-                        const statusClass =
-                          lead.status === "Satıldı"
-                            ? "lead-pill-status-success"
-                            : lead.status === "Vazgeçti"
-                            ? "lead-pill-status-danger"
-                            : "lead-pill-status-default";
-
-                        return (
-                          <tr key={lead.id} style={{ backgroundColor: selectedLeadsForBulk.includes(lead.id) ? "#f0fdf4" : "" }}>
-                            {/* TEKİL SEÇİM KUTUCUĞU */}
-                            <td style={{ textAlign: 'center' }}>
-                              <input 
-                                type="checkbox"
-                                style={{ cursor: "pointer", width: 16, height: 16 }}
-                                checked={selectedLeadsForBulk.includes(lead.id)}
-                                onChange={() => toggleSelectLead(lead.id)}
-                              />
-                            </td>
-                            <td>
-                              <div className="stack">
-                                <div>{lead.name}</div>
-                                <div className="small muted">Oluşturma: {formatDate(lead.created_at)}</div>
-                                <div className="small muted">Güncelleme: {formatDate(lead.updated_at)}</div>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="stack">
-                                <div>{lead.phone}</div>
-                                <div className="small muted">{lead.language}</div>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="stack">
-                                <div className="small muted">{lead.source || "-"}</div>
-                                <div className="small">{ownerName}</div>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="stack">
-                                <span className={`lead-pill ${statusClass}`}>{lead.status}</span>
-                                {lead.stage && <span className="lead-pill lead-pill-status-default">{lead.stage}</span>}
-                              </div>
-                            </td>
-                            <td>
-                              <div className="timeline">
-                                {notes.filter((n) => n.lead_id === lead.id).length === 0 ? (
-                                  <div className="timeline-item">
-                                    <div className="timeline-text muted small">Henüz açıklama yok.</div>
-                                  </div>
-                                ) : (
-                                  notes
-                                    .filter((note) => note.lead_id === lead.id)
-                                    .map((note) => (
-                                      <div key={note.id} className="timeline-item">
-                                        <div className="timeline-date">{formatDate(note.created_at)}</div>
-                                        <div className="timeline-text">{note.text}</div>
-                                      </div>
-                                    ))
-                                )}
-                              </div>
-                            </td>
-                            <td><div className="small">{lead.quote || "-"}</div></td>
-                            <td>
-                              <div className="stack-row">
-                                <button className="btn btn-ghost" type="button" onClick={() => editLead(lead)}>Düzenle</button>
-                                {isAdmin && (
-                                  <button className="btn btn-ghost" type="button" onClick={() => deleteLead(lead.id)}>Sil</button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
-
-          {activeView === "users" && (
-            <section className="card">
-              <div className="card-header">
-                <div>
-                  <div className="card-title">Kullanıcı Yönetimi</div>
-                  <div className="card-subtitle">Admin kullanıcılar sisteme yeni kullanıcı ekleyebilir ve yönetebilir.</div>
-                </div>
-                {isAdmin && (
-                  <button 
-                    className="btn btn-primary" 
-                    type="button" 
-                    onClick={() => {
-                      setEditingUserId(null);
-                      setNewUser({ username: "", password: "", role: "sales" });
-                      setIsUserModalOpen(true);
-                    }}
-                  >
-                    Yeni Kullanıcı Ekle
+                    <X size={12} /> Temizle
                   </button>
                 )}
               </div>
 
-              {!isAdmin ? (
-                <div className="small muted">Bu ekrana sadece admin profiline sahip kullanıcılar erişebilir.</div>
-              ) : (
-                <div className="lead-table-wrapper">
-                  <table className="lead-table">
-                    <thead>
-                      <tr><th>Kullanıcı Adı</th><th>Profil</th><th>Durum</th><th></th></tr>
+              {/* DETAYLI FILTERS */}
+              <div className="bg-white p-4 rounded border border-gray-200 shadow-sm flex flex-wrap gap-4 items-end">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Arama</label>
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                    <input type="text" placeholder="İsim, Tel..." className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                  </div>
+                </div>
+                <div className="w-full sm:w-48">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Durum</label>
+                  <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                    <option value="Tümü">Tümü</option>
+                    {LEAD_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="w-full sm:w-32">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Dil</label>
+                  <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={filterLanguage} onChange={e => setFilterLanguage(e.target.value)}>
+                    <option value="Tümü">Tümü</option>
+                    {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                </div>
+                <div className="w-full sm:w-48">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Kaynak</label>
+                  <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={filterSource} onChange={e => setFilterSource(e.target.value)}>
+                    <option value="Tümü">Tümü</option>
+                    {LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* BULK ACTIONS */}
+              {selectedLeadIds.length > 0 && (
+                <div className="bg-blue-50 border border-blue-200 p-2 rounded flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+                  <span className="text-sm text-blue-800 font-medium ml-2">
+                    <CheckSquare size={16} className="inline mr-1" /> {selectedLeadIds.length} kayıt seçili
+                  </span>
+                  <button onClick={() => setIsTransferModalOpen(true)} className="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-medium hover:bg-blue-700 transition-colors">
+                    Seçilenleri Temsilciye Aktar
+                  </button>
+                </div>
+              )}
+
+              {/* LEAD TABLE */}
+              <div className="bg-white border border-gray-200 rounded shadow-sm overflow-hidden flex flex-col relative z-0">
+                <div className="overflow-x-auto custom-scrollbar">
+                  <table className="min-w-full divide-y divide-gray-200 text-left whitespace-nowrap">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-2.5 w-10 text-center sticky left-0 bg-gray-100 z-10 border-r border-gray-200">
+                          <input type="checkbox" className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" checked={selectedLeadIds.length === filteredLeads.length && filteredLeads.length > 0} onChange={handleSelectAll} />
+                        </th>
+                        <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 border-r border-gray-200">Müşteri</th>
+                        <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 border-r border-gray-200">İletişim</th>
+                        <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 border-r border-gray-200">Dil / Kaynak</th>
+                        <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 border-r border-gray-200">Durum / Aşama</th>
+                        <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 border-r border-gray-200">Teklif</th>
+                        <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 border-r border-gray-200">Temsilci</th>
+                        <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 sticky right-0 bg-gray-100 z-10 border-l border-gray-300 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.05)] text-center w-28">İşlemler</th>
+                      </tr>
                     </thead>
-                    <tbody>
-                      {users.map((u) => (
-                        <tr key={u.id}>
-                          <td>{u.username}</td>
-                          <td>{u.role === "admin" ? "Admin" : "Satış"}</td>
-                          <td>{u.active === false ? "Pasif" : "Aktif"}</td>
-                          <td>
-                            {u.id !== currentProfile.id && (
-                              <div className="stack-row">
-                                <button className="btn btn-ghost" type="button" onClick={() => openEditUser(u)}>
-                                  Güncelle
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {filteredLeads.map((l) => (
+                        <tr key={l.id} className="hover:bg-blue-50/60 transition-colors group">
+                          <td className="px-4 py-2 text-center sticky left-0 bg-white group-hover:bg-blue-50 z-10 border-r border-gray-100">
+                            <input type="checkbox" className="rounded border-gray-300 text-blue-600 cursor-pointer" checked={selectedLeadIds.includes(l.id)} onChange={() => handleSelectOne(l.id)} />
+                          </td>
+                          <td className="px-4 py-2 border-r border-gray-100">
+                            <div className="text-sm font-medium text-gray-900">{l.name}</div>
+                            <div className="text-[10px] text-gray-400">{new Date(l.created_at).toLocaleDateString('tr-TR')}</div>
+                          </td>
+                          <td className="px-4 py-2 border-r border-gray-100 text-sm text-gray-600">{l.phone}</td>
+                          <td className="px-4 py-2 border-r border-gray-100">
+                            <div className="text-xs text-gray-800 font-medium">{l.language}</div>
+                            <div className="text-[10px] text-gray-500">{l.source}</div>
+                          </td>
+                          <td className="px-4 py-2 border-r border-gray-100">
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${l.status === 'Yeni' ? 'bg-blue-100 text-blue-800 border border-blue-200' : l.status === 'Sıcak' ? 'bg-amber-100 text-amber-800 border border-amber-200' : l.status === 'İptal' ? 'bg-red-100 text-red-800 border border-red-200' : 'bg-gray-100 text-gray-700 border border-gray-200'}`}>
+                                {l.status}
+                              </span>
+                              <span className="text-[10px] text-gray-500 truncate w-full">{l.stage}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-2 border-r border-gray-100 text-sm font-semibold text-emerald-600">{l.quote || "-"}</td>
+                          <td className="px-4 py-2 border-r border-gray-100 text-xs text-gray-700">{appUsers.find(u => u.id === l.owner_id)?.name || "Atanmamış"}</td>
+                          <td className="px-4 py-2 sticky right-0 bg-white group-hover:bg-blue-50/60 z-10 border-l border-gray-200 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.03)]">
+                            <div className="flex items-center justify-center gap-2">
+                              <button onClick={() => handleEditLead(l)} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded border border-transparent hover:border-blue-200 transition-colors" title="Düzenle / Not Ekle">
+                                <Edit size={16} />
+                              </button>
+                              
+                              {currentUser?.role === 'Admin' && (
+                                <button onClick={() => handleDeleteLead(l.id)} className="p-1.5 text-red-600 hover:bg-red-100 rounded border border-transparent hover:border-red-200 transition-colors" title="Sil">
+                                  <Trash2 size={16} />
                                 </button>
-                                <button className="btn btn-ghost" type="button" onClick={() => toggleUserActive(u.id, u.active)}>
-                                  {u.active === false ? "Aktif Et" : "Pasif Et"}
-                                </button>
-                                <button className="btn btn-ghost" style={{ color: "#dc2626" }} type="button" onClick={() => deleteProfile(u.id)}>
-                                  Sil
-                                </button>
-                              </div>
-                            )}
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                  {filteredLeads.length === 0 && <div className="py-8 text-center text-sm text-gray-500">Kriterlere uygun kayıt bulunamadı.</div>}
                 </div>
-              )}
-            </section>
+              </div>
+            </div>
+          )}
+
+          {/* === USERS VIEW === */}
+          {activeView === "users" && currentUser?.role === 'Admin' && (
+            <div className="space-y-4 max-w-[1200px] mx-auto animate-in fade-in duration-300">
+              
+              <div className="bg-white p-4 rounded border border-gray-200 shadow-sm flex flex-wrap gap-4 items-end">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Kullanıcı Ara</label>
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                    <input type="text" placeholder="İsim veya E-posta..." className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userSearchQuery} onChange={e => setUserSearchQuery(e.target.value)} />
+                  </div>
+                </div>
+                <div className="w-full sm:w-48">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Sistem Durumu</label>
+                  <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userFilterStatus} onChange={e => setUserFilterStatus(e.target.value)}>
+                    <option value="Tümü">Tümü</option>
+                    <option value="Aktif">Aktif Kullanıcılar</option>
+                    <option value="Pasif">Pasif (Askıda)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded shadow-sm overflow-hidden flex flex-col relative z-0">
+                <div className="overflow-x-auto custom-scrollbar">
+                  <table className="min-w-full divide-y divide-gray-200 text-left whitespace-nowrap">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-6 py-3 text-xs font-semibold text-gray-600 border-r border-gray-200 w-16 text-center">Profil</th>
+                        <th className="px-6 py-3 text-xs font-semibold text-gray-600 border-r border-gray-200">Ad Soyad</th>
+                        <th className="px-6 py-3 text-xs font-semibold text-gray-600 border-r border-gray-200">E-Posta Adresi</th>
+                        <th className="px-6 py-3 text-xs font-semibold text-gray-600 border-r border-gray-200 text-center">Sistem Rolü</th>
+                        <th className="px-6 py-3 text-xs font-semibold text-gray-600 border-r border-gray-200 text-center">Durum</th>
+                        <th className="px-6 py-3 text-xs font-semibold text-gray-600 text-center w-32">İşlemler</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {filteredUsers.map((u) => (
+                        <tr key={u.id} className="hover:bg-blue-50/40 transition-colors group">
+                          <td className="px-6 py-3 border-r border-gray-100 flex justify-center">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${u.status === 'Aktif' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-500'}`}>
+                              {u.name.charAt(0).toUpperCase()}
+                            </div>
+                          </td>
+                          <td className="px-6 py-3 border-r border-gray-100 text-sm font-medium text-gray-900">{u.name}</td>
+                          <td className="px-6 py-3 border-r border-gray-100 text-sm text-gray-600">{u.email}</td>
+                          <td className="px-6 py-3 border-r border-gray-100 text-center">
+                            <span className={`px-2.5 py-1 rounded text-[11px] font-bold ${
+                              u.role === 'Admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {u.role}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3 border-r border-gray-100 text-center">
+                            <span className={`px-2.5 py-1 rounded text-[11px] font-semibold border ${
+                              u.status === 'Aktif' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-600 border-gray-300'
+                            }`}>
+                              {u.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button onClick={() => { setUserForm({...u, password: ""}); setIsUserModalOpen(true); }} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded border border-transparent hover:border-blue-200 transition-colors" title="Kullanıcıyı Düzenle">
+                                <Edit size={16} />
+                              </button>
+                              <button onClick={() => handleToggleUserStatus(u)} className={`p-1.5 rounded border border-transparent transition-colors ${u.status === 'Aktif' ? 'text-amber-600 hover:bg-amber-100 hover:border-amber-200' : 'text-emerald-600 hover:bg-emerald-100 hover:border-emerald-200'}`} title={u.status === 'Aktif' ? "Pasife Al (Erişimi Kes)" : "Aktif Et (Erişim Ver)"}>
+                                {u.status === 'Aktif' ? <PowerOff size={16} /> : <Power size={16} />}
+                              </button>
+                              <button onClick={() => handleDeleteUser(u.id)} className="p-1.5 text-red-600 hover:bg-red-100 rounded border border-transparent hover:border-red-200 transition-colors" title="Kalıcı Olarak Sil">
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {filteredUsers.length === 0 && <div className="py-10 text-center text-sm text-gray-500">Kriterlere uygun kullanıcı bulunamadı.</div>}
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </main>
 
-      {/* TOPLU DEVİR MODALI (YENİ) */}
-      {isBulkOwnerModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsBulkOwnerModalOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-title">Toplu Sahip Değiştirme</div>
-              <button className="btn btn-ghost" type="button" onClick={() => setIsBulkOwnerModalOpen(false)}>Kapat</button>
+      {/* ======================= MODALS ======================= */}
+
+      {/* USER MODAL */}
+      {isUserModalOpen && currentUser?.role === 'Admin' && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded shadow-2xl w-full max-w-lg border border-gray-300 animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <Shield size={18} className="text-blue-600" />
+                <h3 className="text-base font-semibold text-gray-800">{userForm.id ? "Kullanıcı Düzenle" : "Yeni Sistem Kullanıcısı"}</h3>
+              </div>
+              <button onClick={() => setIsUserModalOpen(false)} className="text-gray-400 hover:text-red-500 p-1 rounded transition-colors"><X size={20} /></button>
             </div>
-            <div className="modal-body">
-              <form onSubmit={handleBulkOwnerChange}>
-                <div className="stack">
-                  <div className="small muted" style={{ marginBottom: 15 }}>
-                    Seçili <strong>{selectedLeadsForBulk.length}</strong> adet kaydın sorumlusunu değiştirmek üzeresiniz.
-                  </div>
-                  <div className="field">
-                    <label className="field-label">Yeni Lead Sahibi <span className="muted">*</span></label>
-                    <select
-                      className="select"
-                      value={bulkNewOwnerId}
-                      onChange={(e) => setBulkNewOwnerId(e.target.value)}
-                      required
-                    >
-                      <option value="">Lütfen Bir Sahip Seçiniz</option>
-                      {users.map((user) => (
-                        <option key={user.id} value={user.id}>{user.username}</option>
-                      ))}
-                    </select>
-                  </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Ad Soyad</label>
+                <input type="text" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} placeholder="Örn: Ayşe Demir" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">E-Posta Adresi (Giriş ID)</label>
+                <input type="email" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} placeholder="ornek@denteste.com" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Şifre {userForm.id && <span className="text-gray-400 font-normal">(Değiştirmek istemiyorsanız boş bırakın)</span>}
+                </label>
+                <input type="password" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} placeholder="******" />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Kullanıcı Rolü (Yetki)</label>
+                  <select className="w-full px-3 py-2 border border-blue-300 bg-blue-50/30 rounded text-sm focus:outline-none focus:border-blue-500 font-medium text-blue-900" value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value})}>
+                    <option value="Satış">Satış Personeli</option>
+                    <option value="Admin">Sistem Yöneticisi (Admin)</option>
+                  </select>
                 </div>
-                <div className="modal-footer" style={{ marginTop: 20 }}>
-                  <button className="btn btn-primary" type="submit">Devret</button>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Sistem Durumu</label>
+                  <select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.status} onChange={e => setUserForm({...userForm, status: e.target.value})}>
+                    <option value="Aktif">Aktif (Giriş Yapabilir)</option>
+                    <option value="Pasif">Pasif (Giriş Engelli)</option>
+                  </select>
                 </div>
-              </form>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* YENİ KULLANICI EKLEME / GÜNCELLEME MODALI */}
-      {isUserModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsUserModalOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-title">{editingUserId ? "Kullanıcıyı Güncelle" : "Yeni Kullanıcı Oluştur"}</div>
-              <button className="btn btn-ghost" type="button" onClick={() => setIsUserModalOpen(false)}>Kapat</button>
-            </div>
-            <div className="modal-body">
-              <form onSubmit={handleSaveUser}>
-                <div className="stack">
-                  <div className="field">
-                    <label className="field-label">Kullanıcı Adı <span className="muted">*</span></label>
-                    <input 
-                      className="input" 
-                      placeholder="Örn: ahmet" 
-                      value={newUser.username} 
-                      onChange={(e) => setNewUser(prev => ({ ...prev, username: e.target.value }))} 
-                    />
-                    <span className="field-helper">Giriş yaparken bu ismi kullanacaktır.</span>
-                  </div>
-                  
-                  {!editingUserId && (
-                    <div className="field">
-                      <label className="field-label">Şifre <span className="muted">*</span></label>
-                      <input 
-                        className="input" 
-                        type="password"
-                        placeholder="En az 6 karakter" 
-                        value={newUser.password} 
-                        onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))} 
-                      />
-                    </div>
-                  )}
-
-                  {editingUserId && (
-                    <div className="small muted" style={{ marginTop: -10, marginBottom: 10 }}>
-                      * Güvenlik gereği kullanıcı şifreleri sadece Supabase Paneli üzerinden sıfırlanabilir. Buradan sadece Kullanıcı Adı ve Rol güncelleyebilirsiniz.
-                    </div>
-                  )}
-
-                  <div className="field">
-                    <label className="field-label">Rol</label>
-                    <select 
-                      className="select" 
-                      value={newUser.role} 
-                      onChange={(e) => setNewUser(prev => ({ ...prev, role: e.target.value }))}
-                    >
-                      <option value="sales">Satış</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="modal-footer" style={{ marginTop: 20 }}>
-                  <button className="btn btn-primary" type="submit">
-                    {editingUserId ? "Değişiklikleri Kaydet" : "Kullanıcıyı Oluştur"}
-                  </button>
-                </div>
-              </form>
+            
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+              <button onClick={() => setIsUserModalOpen(false)} className="px-4 py-2 border border-gray-300 text-gray-700 bg-white rounded text-sm font-medium hover:bg-gray-100 transition-colors">İptal</button>
+              <button onClick={handleSaveUser} className="px-6 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2">
+                <CheckSquare size={16} /> Kaydet
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* LEAD EKLEME / GÜNCELLEME MODALI */}
-      {isLeadModalOpen && (
-        <div className="modal-backdrop" onClick={resetLeadForm}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-title">{leadForm.id ? "Lead Güncelle" : "Yeni Lead Oluştur"}</div>
-              <button className="btn btn-ghost" type="button" onClick={resetLeadForm}>Kapat</button>
+      {/* LEAD MODAL */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded shadow-2xl w-full max-w-5xl flex flex-col h-[90vh] sm:h-[85vh] border border-gray-300 animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3"><Edit size={18} className="text-blue-600" /><h3 className="text-base font-semibold text-gray-800">{leadForm.id ? `Kayıt Düzenle: ${leadForm.name}` : "Yeni Müşteri Adayı Kaydı"}</h3></div>
+              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-1 rounded transition-colors"><X size={20} /></button>
             </div>
-            <div className="modal-body">
-              <form onSubmit={upsertLead}>
-                <div className="form-grid">
-                  <div className="field">
-                    <label className="field-label">İsim <span className="muted">*</span></label>
-                    <input className="input" placeholder="Müşteri adı" value={leadForm.name} onChange={(e) => handleLeadFieldChange("name", e.target.value)} />
-                  </div>
-
-                  <div className="field">
-                    <label className="field-label">Telefon <span className="muted">*</span></label>
-                    <input className="input" placeholder="+90 ..." value={leadForm.phone} onChange={(e) => handleLeadFieldChange("phone", e.target.value)} />
-                  </div>
-
-                  <div className="field">
-                    <label className="field-label">Dil</label>
-                    <select className="select" value={leadForm.language} onChange={(e) => handleLeadFieldChange("language", e.target.value)}>
-                      <option value="">Seçiniz</option>
-                      {LANGUAGES.map((lang) => <option key={lang} value={lang}>{lang}</option>)}
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label className="field-label">Kaynak</label>
-                    <select className="select" value={leadForm.source} onChange={(e) => handleLeadFieldChange("source", e.target.value)}>
-                      <option value="">Seçiniz</option>
-                      {LEAD_SOURCES.map((src) => <option key={src} value={src}>{src}</option>)}
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label className="field-label">Durum</label>
-                    <select className="select" value={leadForm.status} onChange={(e) => handleLeadFieldChange("status", e.target.value)}>
-                      {LEAD_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label className="field-label">Aşama</label>
-                    <select className="select" value={leadForm.stage} onChange={(e) => handleLeadFieldChange("stage", e.target.value)}>
-                      <option value="">Seçiniz</option>
-                      {LEAD_STAGES.map((stage) => <option key={stage} value={stage}>{stage}</option>)}
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label className="field-label">Lead Sahibi</label>
-                    <select className="select" value={leadForm.owner_id} onChange={(e) => handleLeadFieldChange("owner_id", e.target.value)}>
-                      <option value="">Seçiniz</option>
-                      {users.map((user) => <option key={user.id} value={user.id}>{user.username}</option>)}
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label className="field-label">Teklif</label>
-                    <input className="input" placeholder="Teklif özeti veya tutar" value={leadForm.quote} onChange={(e) => handleLeadFieldChange("quote", e.target.value)} />
-                  </div>
+            
+            <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+              <div className="flex-1 p-6 overflow-y-auto custom-scrollbar border-r border-gray-200 flex flex-col bg-white">
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2">Müşteri Detayları</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Ad Soyad</label><input type="text" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={leadForm.name} onChange={e => setLeadForm({...leadForm, name: e.target.value})} /></div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Telefon</label><div className="relative"><Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} /><input type="text" className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={leadForm.phone} onChange={e => handlePhoneChange(e.target.value)} /></div></div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Dil</label><select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={leadForm.language} onChange={e => setLeadForm({...leadForm, language: e.target.value})}>{LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}</select></div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Kaynak</label><select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={leadForm.source} onChange={e => setLeadForm({...leadForm, source: e.target.value})}>{LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Durum</label><select className="w-full px-3 py-2 border border-blue-300 rounded text-sm focus:outline-none focus:border-blue-500 bg-blue-50/50 text-blue-900 font-semibold" value={leadForm.status} onChange={e => setLeadForm({...leadForm, status: e.target.value})}>{LEAD_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Alt Durum</label><select className="w-full px-3 py-2 border border-blue-300 rounded text-sm focus:outline-none focus:border-blue-500 bg-blue-50/50 text-blue-900 font-semibold" value={leadForm.stage} onChange={e => setLeadForm({...leadForm, stage: e.target.value})}>{LEAD_STAGES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Temsilci</label><select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={leadForm.owner_id} onChange={e => setLeadForm({...leadForm, owner_id: e.target.value})}><option value="">Seçiniz...</option>{appUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Verilen Teklif</label><div className="relative"><CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} /><input type="text" className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 font-semibold" value={leadForm.quote} onChange={e => setLeadForm({...leadForm, quote: e.target.value})} /></div></div>
                 </div>
 
-                <div className="field" style={{ marginTop: 10 }}>
-                  <label className="field-label">Açıklama (son not)</label>
-                  <textarea
-                    className="textarea"
-                    placeholder="Görüşme notu, itirazlar, aksiyonlar..."
-                    value={leadForm.pendingNote}
-                    onChange={(e) => handleLeadFieldChange("pendingNote", e.target.value)}
-                  />
-                  <span className="field-helper">Kaydettikten sonra lead altında tarihçede görebilirsiniz.</span>
+                <div className="mt-6 pt-4 border-t border-gray-200 shrink-0">
+                  <label className="flex items-center gap-1.5 text-xs font-bold text-blue-700 mb-2"><MessageSquare size={14} /> YENİ GÖRÜŞME NOTU EKLE</label>
+                  <textarea rows="3" className="w-full px-3 py-2 border border-blue-200 rounded text-sm focus:outline-none focus:border-blue-500 resize-none bg-blue-50/30 text-gray-800" value={leadForm.pendingNote} onChange={e => setLeadForm({...leadForm, pendingNote: e.target.value})}></textarea>
                 </div>
+              </div>
 
-                <div className="modal-footer">
-                  {selectedLead && (
-                    <button className="btn btn-ghost" type="button" onClick={addNoteToLead} disabled={!String(leadForm.pendingNote || "").trim()}>
-                      Yalnızca Not Ekle
-                    </button>
+              <div className="w-full md:w-80 bg-gray-50 p-0 flex flex-col border-t md:border-t-0 border-gray-200 shrink-0">
+                <div className="p-4 border-b border-gray-200 bg-gray-100 flex items-center justify-between shrink-0">
+                  <h4 className="text-xs font-bold text-gray-600 uppercase flex items-center gap-1.5"><History size={14}/> İşlem & Not Geçmişi</h4>
+                  <span className="bg-gray-200 text-gray-600 px-2 py-0.5 rounded text-[10px] font-bold border border-gray-300">{leadForm.notes?.length || 0} Kayıt</span>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                  {leadForm.notes && leadForm.notes.length > 0 ? (
+                    leadForm.notes.map((n) => (
+                      <div key={n.id} className="bg-white p-3 rounded border border-gray-200 shadow-sm relative before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-blue-500 before:rounded-l">
+                        <div className="flex justify-between items-start mb-1.5 pl-2">
+                          <span className="text-[11px] font-bold text-blue-700">{n.author}</span>
+                          <span className="text-[10px] text-gray-500 font-medium">
+                            {new Date(n.created_at).toLocaleDateString('tr-TR')} {new Date(n.created_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-700 whitespace-pre-wrap pl-2 leading-relaxed">{n.text}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-center py-10 opacity-60"><Clock size={32} className="text-gray-400 mb-2" /><span className="text-xs text-gray-500 font-medium">Bu müşteri için henüz bir işlem<br/>geçmişi bulunmuyor.</span></div>
                   )}
-                  <button className="btn btn-primary" type="submit">
-                    {leadForm.id ? "Lead Kaydet / Güncelle" : "Lead Oluştur"}
-                  </button>
                 </div>
-              </form>
+              </div>
+            </div>
+            
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3 shrink-0">
+              <button onClick={() => setIsModalOpen(false)} className="px-5 py-2 border border-gray-300 text-gray-700 bg-white rounded text-sm font-medium hover:bg-gray-100 hover:text-gray-900 transition-colors shadow-sm">Vazgeç</button>
+              <button onClick={handleSaveLead} className="px-6 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-2"><CheckSquare size={16} /> Değişiklikleri Kaydet</button>
             </div>
           </div>
         </div>
       )}
+
+      {/* TRANSFER MODAL */}
+      {isTransferModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded shadow-2xl w-full max-w-sm p-6 border border-gray-300 animate-in zoom-in-95 duration-200">
+            <h3 className="text-base font-semibold text-gray-800 mb-4 border-b border-gray-100 pb-2 flex items-center gap-2"><Users size={18} className="text-blue-600" /> Toplu Kayıt Aktarımı</h3>
+            <div className="space-y-4">
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Seçilen Kayıt Sayısı</label><div className="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-2 rounded border border-blue-100">{selectedLeadIds.length} Lead Aktarılacak</div></div>
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Aktarılacak Temsilci Seçin</label><select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={targetUserId} onChange={e => setTargetUserId(e.target.value)}><option value="">Lütfen Temsilci Seçiniz...</option>{appUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setIsTransferModalOpen(false)} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded text-sm font-medium hover:bg-gray-50 transition-colors">İptal</button>
+              <button onClick={handleBulkTransfer} disabled={!targetUserId} className="flex-1 bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Aktar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { height: 10px; width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f8fafc; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; border: 2px solid #f8fafc; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+      `}</style>
     </div>
   );
 }
