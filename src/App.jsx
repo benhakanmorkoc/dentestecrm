@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 // =========================================================================
 // 🚀 CANLI ORTAMA (Vercel/GitHub) YÜKLERKEN AŞAĞIDAKİ YORUMU KALDIRIN:
- import { supabase } from "./supabaseClient"; 
+import { supabase } from "./supabaseClient"; 
 // =========================================================================
 import { 
   LayoutDashboard, 
@@ -23,9 +23,9 @@ import {
   Shield,
   Power,
   PowerOff,
-  Filter
+  Filter,
+  Info
 } from "lucide-react";
-
 
 // --- CONSTANTS ---
 const LEAD_SOURCES = ["Facebook Reklam", "Direk Arama", "Referans", "Direk Mesaj-Instagram", "Eski Data"];
@@ -42,10 +42,10 @@ const QUICK_FILTERS = [
 ];
 
 function createEmptyLead(ownerId) {
-  return { id: null, name: "", language: "TR", phone: "", source: "Facebook Reklam", status: "Yeni", stage: "Diğer", owner_id: ownerId || "", pendingNote: "", quote: "", notes: [] };
+  return { id: null, name: "", language: "TR", phone: "", source: "Facebook Reklam", status: "Yeni", stage: "Diğer", owner_id: ownerId || "", quote: "", pendingNote: "", notes: [] };
 }
 function createEmptyUser() {
-  return { id: null, name: "", email: "", status: "Aktif", role: "Satış", password: "" };
+  return { id: null, username: "", active: true, role: "sales" };
 }
 
 export function App() {
@@ -102,13 +102,22 @@ export function App() {
 
   const fetchData = async () => {
     const { data, error } = await supabase.from('leads').select('*').order('created_at', { ascending: false });
-    if (error) console.error("Lead çekme hatası:", error);
-    if (data) setLeads(data);
+    if (error) {
+      console.error("Lead çekme hatası:", error);
+    } else if (data) {
+      setLeads(data);
+    }
   };
 
   const fetchUsers = async (sessionId) => {
-    const { data, error } = await supabase.from('profiles').select('*').order('name');
-    if (error) console.error("Kullanıcı çekme hatası:", error);
+    // profiles tablosunda artık name değil username olduğu için sıralamayı username'e göre yapıyoruz.
+    const { data, error } = await supabase.from('profiles').select('*').order('username');
+    
+    if (error) {
+      console.error("Kullanıcı çekme hatası:", error);
+      setAuthLoading(false);
+      return;
+    }
     
     if (data) {
       setAppUsers(data);
@@ -131,11 +140,9 @@ export function App() {
 
     setAuthLoading(true);
     try {
+      // E-posta girilmezse projenizdeki yapıya göre default domain ekliyoruz
       const email = username.includes('@') ? username : `${username}@local.minicrm`;
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
       if (error || !data.user) {
         alert("Kullanıcı adı veya şifre hatalı.");
@@ -144,7 +151,7 @@ export function App() {
       }
     } catch (e) {
       console.error(e);
-      alert("Giriş yapılırken hata oluştu.");
+      alert("Giriş yapılırken beklenmeyen bir hata oluştu.");
       setAuthLoading(false);
     }
   }
@@ -160,7 +167,7 @@ export function App() {
       alert("Bu işlem için yetkiniz bulunmamaktadır."); 
       return; 
     }
-    if(!window.confirm("Bu kaydı silmek istediğinize emin misiniz?")) return;
+    if(!window.confirm("Bu kaydı silmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) return;
     
     const { error } = await supabase.from('leads').delete().match({ id });
     if (error) {
@@ -188,9 +195,12 @@ export function App() {
   };
 
   const handleSaveLead = async () => {
-    const { id, pendingNote, notes, ...restOfLead } = leadForm;
+    const { id, pendingNote, notes, created_at, updated_at, ...restOfLead } = leadForm;
     const payloadToSave = { ...restOfLead };
-    if (id) payloadToSave.id = id;
+    
+    if (id) {
+      payloadToSave.id = id;
+    }
 
     const { data: savedLead, error: leadError } = await supabase
       .from('leads')
@@ -205,11 +215,12 @@ export function App() {
 
     const currentLeadId = savedLead?.id || id;
 
+    // Yeni not varsa lead_notes tablosuna ekle (author_id kolonunu kullanarak)
     if (pendingNote && pendingNote.trim() !== "" && currentLeadId) {
       const { error: noteError } = await supabase.from('lead_notes').insert([{
         lead_id: currentLeadId,
         text: pendingNote,
-        author: currentUser?.name || currentUser?.username || "Sistem"
+        author_id: currentUser?.id
       }]);
       if (noteError) console.error("Not kaydedilemedi:", noteError);
     }
@@ -244,13 +255,13 @@ export function App() {
     
     const headers = ["İsim,Telefon,Dil,Kaynak,Durum,Alt Durum,Teklif,Sahibi,Tarih"];
     const rows = filteredLeads.map(l => {
-      const ownerName = appUsers.find(u => u.id === l.owner_id)?.name || appUsers.find(u => u.id === l.owner_id)?.username || "Atanmamış";
+      const ownerObj = appUsers.find(u => u.id === l.owner_id);
+      const ownerName = ownerObj ? ownerObj.username : "Atanmamış";
       return `${l.name || ''},${l.phone || ''},${l.language || ''},${l.source || ''},${l.status || ''},${l.stage || ''},${l.quote || ''},${ownerName},${l.created_at || ''}`;
     });
     
-    // CSV İçeriği Oluşturma ve BOM ekleme
     const csvData = headers.concat(rows).join("\n");
-    const BOM = "\uFEFF";
+    const BOM = "\uFEFF"; 
     const csvContent = BOM + csvData;
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -266,7 +277,7 @@ export function App() {
 
   const filteredLeads = useMemo(() => {
     return leads.filter(l => {
-      const matchSearch = (l.name?.toLowerCase().includes(searchQuery.toLowerCase()) || l.phone?.includes(searchQuery));
+      const matchSearch = (l.name?.toLowerCase().includes(searchQuery.toLowerCase()) || l.phone?.toString().includes(searchQuery));
       const matchStatus = filterStatus === "Tümü" || l.status === filterStatus;
       const matchLanguage = filterLanguage === "Tümü" || l.language === filterLanguage;
       const matchSource = filterSource === "Tümü" || l.source === filterSource;
@@ -299,11 +310,19 @@ export function App() {
   const handleSaveUser = async () => {
     if (currentUser?.role !== 'admin') return;
     
-    const { password, ...profileData } = userForm;
+    // Yalnızca profiles tablosunda var olan kolonları gönderiyoruz.
+    const profileData = {
+      username: userForm.username,
+      role: userForm.role,
+      active: userForm.active
+    };
+
+    if (userForm.id) profileData.id = userForm.id;
+    
     const { error } = await supabase.from('profiles').upsert(profileData);
     
     if (error) {
-      alert("Kullanıcı kaydedilemedi: " + error.message);
+      alert("Kullanıcı profil bilgileri kaydedilemedi: " + error.message);
     } else {
       setIsUserModalOpen(false);
       fetchUsers(session?.user?.id);
@@ -312,7 +331,7 @@ export function App() {
 
   const handleDeleteUser = async (id) => {
     if (currentUser?.role !== 'admin') return;
-    if(!window.confirm("Bu kullanıcıyı sistemden tamamen silmek istediğinize emin misiniz?")) return;
+    if(!window.confirm("Bu kullanıcı profilini silmek istediğinize emin misiniz?")) return;
     
     await supabase.from('profiles').delete().match({ id });
     fetchUsers(session?.user?.id);
@@ -320,17 +339,21 @@ export function App() {
 
   const handleToggleUserStatus = async (user) => {
     if (currentUser?.role !== 'admin') return;
-    const newStatus = user.status === "Aktif" ? "Pasif" : "Aktif";
-    if(!window.confirm(`Kullanıcı durumunu '${newStatus}' olarak değiştirmek istediğinize emin misiniz?`)) return;
+    const newStatus = !user.active; // boolean toggle
+    if(!window.confirm(`Kullanıcı durumunu '${newStatus ? 'Aktif' : 'Pasif'}' olarak değiştirmek istediğinize emin misiniz?`)) return;
     
-    await supabase.from('profiles').update({ status: newStatus }).match({ id: user.id });
+    await supabase.from('profiles').update({ active: newStatus }).match({ id: user.id });
     fetchUsers(session?.user?.id);
   };
 
   const filteredUsers = useMemo(() => {
     return appUsers.filter(u => {
-      const matchSearch = u.name?.toLowerCase().includes(userSearchQuery.toLowerCase()) || u.email?.toLowerCase().includes(userSearchQuery.toLowerCase()) || u.username?.toLowerCase().includes(userSearchQuery.toLowerCase());
-      const matchStatus = userFilterStatus === "Tümü" || u.status === userFilterStatus;
+      const matchSearch = u.username?.toLowerCase().includes(userSearchQuery.toLowerCase());
+      
+      let matchStatus = true;
+      if (userFilterStatus === "Aktif") matchStatus = u.active === true;
+      if (userFilterStatus === "Pasif") matchStatus = u.active === false;
+      
       return matchSearch && matchStatus;
     });
   }, [appUsers, userSearchQuery, userFilterStatus]);
@@ -359,7 +382,7 @@ export function App() {
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Kullanıcı Adı (veya E-posta)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Kullanıcı Adı</label>
               <input name="username" type="text" required className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="admin" />
             </div>
             <div>
@@ -407,8 +430,8 @@ export function App() {
         <div className="p-4 border-t border-slate-700 bg-slate-900/50">
           <div className="mb-4 px-2">
             <div className="flex items-center gap-2 mb-1">
-              <span className={`w-2 h-2 rounded-full ${currentUser.status === 'Aktif' || currentUser.active !== false ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
-              <p className="text-xs font-bold text-white truncate">{currentUser.name || currentUser.username}</p>
+              <span className={`w-2 h-2 rounded-full ${currentUser.active ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+              <p className="text-xs font-bold text-white truncate">{currentUser.username}</p>
             </div>
             <p className="text-[10px] font-semibold text-blue-400 mt-1 uppercase tracking-wider">{currentUser.role === 'admin' ? 'Admin' : 'Satış Personeli'}</p>
           </div>
@@ -442,7 +465,7 @@ export function App() {
             ) : (
               currentUser?.role === 'admin' && (
                 <button onClick={() => { setUserForm(createEmptyUser()); setIsUserModalOpen(true); }} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm transition-colors shadow-sm">
-                  <UserPlus size={14} /> Yeni Kullanıcı
+                  <UserPlus size={14} /> Profil Ekle
                 </button>
               )
             )}
@@ -570,7 +593,7 @@ export function App() {
                             </div>
                           </td>
                           <td className="px-4 py-2 border-r border-gray-100 text-sm font-semibold text-emerald-600">{l.quote || "-"}</td>
-                          <td className="px-4 py-2 border-r border-gray-100 text-xs text-gray-700">{appUsers.find(u => u.id === l.owner_id)?.name || appUsers.find(u => u.id === l.owner_id)?.username || "Atanmamış"}</td>
+                          <td className="px-4 py-2 border-r border-gray-100 text-xs text-gray-700">{appUsers.find(u => u.id === l.owner_id)?.username || "Atanmamış"}</td>
                           <td className="px-4 py-2 sticky right-0 bg-white group-hover:bg-blue-50/60 z-10 border-l border-gray-200 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.03)]">
                             <div className="flex items-center justify-center gap-2">
                               <button onClick={() => handleEditLead(l)} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded border border-transparent hover:border-blue-200 transition-colors" title="Düzenle / Not Ekle">
@@ -603,7 +626,7 @@ export function App() {
                   <label className="block text-xs font-medium text-gray-500 mb-1">Kullanıcı Ara</label>
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                    <input type="text" placeholder="İsim veya E-posta..." className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userSearchQuery} onChange={e => setUserSearchQuery(e.target.value)} />
+                    <input type="text" placeholder="Kullanıcı adı..." className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userSearchQuery} onChange={e => setUserSearchQuery(e.target.value)} />
                   </div>
                 </div>
                 <div className="w-full sm:w-48">
@@ -622,8 +645,7 @@ export function App() {
                     <thead className="bg-gray-100">
                       <tr>
                         <th className="px-6 py-3 text-xs font-semibold text-gray-600 border-r border-gray-200 w-16 text-center">Profil</th>
-                        <th className="px-6 py-3 text-xs font-semibold text-gray-600 border-r border-gray-200">Ad Soyad</th>
-                        <th className="px-6 py-3 text-xs font-semibold text-gray-600 border-r border-gray-200">E-Posta Adresi</th>
+                        <th className="px-6 py-3 text-xs font-semibold text-gray-600 border-r border-gray-200">Kullanıcı Adı</th>
                         <th className="px-6 py-3 text-xs font-semibold text-gray-600 border-r border-gray-200 text-center">Sistem Rolü</th>
                         <th className="px-6 py-3 text-xs font-semibold text-gray-600 border-r border-gray-200 text-center">Durum</th>
                         <th className="px-6 py-3 text-xs font-semibold text-gray-600 text-center w-32">İşlemler</th>
@@ -633,12 +655,11 @@ export function App() {
                       {filteredUsers.map((u) => (
                         <tr key={u.id} className="hover:bg-blue-50/40 transition-colors group">
                           <td className="px-6 py-3 border-r border-gray-100 flex justify-center">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${(u.status === 'Aktif' || u.active !== false) ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-500'}`}>
-                              {(u.name || u.username || "?").charAt(0).toUpperCase()}
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${u.active ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-500'}`}>
+                              {(u.username || "?").charAt(0).toUpperCase()}
                             </div>
                           </td>
-                          <td className="px-6 py-3 border-r border-gray-100 text-sm font-medium text-gray-900">{u.name || u.username}</td>
-                          <td className="px-6 py-3 border-r border-gray-100 text-sm text-gray-600">{u.email}</td>
+                          <td className="px-6 py-3 border-r border-gray-100 text-sm font-medium text-gray-900">{u.username}</td>
                           <td className="px-6 py-3 border-r border-gray-100 text-center">
                             <span className={`px-2.5 py-1 rounded text-[11px] font-bold ${
                               u.role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700'
@@ -648,18 +669,18 @@ export function App() {
                           </td>
                           <td className="px-6 py-3 border-r border-gray-100 text-center">
                             <span className={`px-2.5 py-1 rounded text-[11px] font-semibold border ${
-                              (u.status === 'Aktif' || u.active !== false) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-600 border-gray-300'
+                              u.active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-600 border-gray-300'
                             }`}>
-                              {(u.status === 'Aktif' || u.active !== false) ? 'Aktif' : 'Pasif'}
+                              {u.active ? 'Aktif' : 'Pasif'}
                             </span>
                           </td>
                           <td className="px-6 py-3 text-center">
                             <div className="flex items-center justify-center gap-2">
-                              <button onClick={() => { setUserForm({...u, password: ""}); setIsUserModalOpen(true); }} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded border border-transparent hover:border-blue-200 transition-colors" title="Kullanıcıyı Düzenle">
+                              <button onClick={() => { setUserForm({ id: u.id, username: u.username, role: u.role, active: u.active }); setIsUserModalOpen(true); }} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded border border-transparent hover:border-blue-200 transition-colors" title="Kullanıcıyı Düzenle">
                                 <Edit size={16} />
                               </button>
-                              <button onClick={() => handleToggleUserStatus(u)} className={`p-1.5 rounded border border-transparent transition-colors ${(u.status === 'Aktif' || u.active !== false) ? 'text-amber-600 hover:bg-amber-100 hover:border-amber-200' : 'text-emerald-600 hover:bg-emerald-100 hover:border-emerald-200'}`} title={(u.status === 'Aktif' || u.active !== false) ? "Pasife Al (Erişimi Kes)" : "Aktif Et (Erişim Ver)"}>
-                                {(u.status === 'Aktif' || u.active !== false) ? <PowerOff size={16} /> : <Power size={16} />}
+                              <button onClick={() => handleToggleUserStatus(u)} className={`p-1.5 rounded border border-transparent transition-colors ${u.active ? 'text-amber-600 hover:bg-amber-100 hover:border-amber-200' : 'text-emerald-600 hover:bg-emerald-100 hover:border-emerald-200'}`} title={u.active ? "Pasife Al (Erişimi Kes)" : "Aktif Et (Erişim Ver)"}>
+                                {u.active ? <PowerOff size={16} /> : <Power size={16} />}
                               </button>
                               <button onClick={() => handleDeleteUser(u.id)} className="p-1.5 text-red-600 hover:bg-red-100 rounded border border-transparent hover:border-red-200 transition-colors" title="Kalıcı Olarak Sil">
                                 <Trash2 size={16} />
@@ -687,25 +708,20 @@ export function App() {
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <Shield size={18} className="text-blue-600" />
-                <h3 className="text-base font-semibold text-gray-800">{userForm.id ? "Kullanıcı Düzenle" : "Yeni Sistem Kullanıcısı"}</h3>
+                <h3 className="text-base font-semibold text-gray-800">{userForm.id ? "Kullanıcı Profili Düzenle" : "Yeni Profil Kaydı"}</h3>
               </div>
               <button onClick={() => setIsUserModalOpen(false)} className="text-gray-400 hover:text-red-500 p-1 rounded transition-colors"><X size={20} /></button>
             </div>
             
             <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Ad Soyad (veya Username)</label>
-                <input type="text" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.name || userForm.username || ''} onChange={e => setUserForm({...userForm, name: e.target.value, username: e.target.value})} placeholder="Örn: Ayşe Demir" />
+              <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 flex items-start gap-2 text-blue-700 text-xs font-medium mb-4">
+                <Info size={16} className="mt-0.5 flex-shrink-0" />
+                <p>Güvenlik nedeniyle şifre ve e-posta tanımlamaları yalnızca Supabase "Authentication" paneli üzerinden yapılmalıdır. Bu alandan sadece sistem içi profil bilgileri yönetilir.</p>
               </div>
+
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">E-Posta Adresi (Giriş ID)</label>
-                <input type="email" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.email || ''} onChange={e => setUserForm({...userForm, email: e.target.value})} placeholder="ornek@denteste.com" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Şifre {userForm.id && <span className="text-gray-400 font-normal">(Değiştirmek istemiyorsanız boş bırakın)</span>}
-                </label>
-                <input type="password" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.password || ''} onChange={e => setUserForm({...userForm, password: e.target.value})} placeholder="******" />
+                <label className="block text-xs font-medium text-gray-700 mb-1">Kullanıcı Adı (Sistemde Görünecek İsim)</label>
+                <input type="text" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.username || ''} onChange={e => setUserForm({...userForm, username: e.target.value})} placeholder="Örn: Ayşe Demir" />
               </div>
               
               <div className="grid grid-cols-2 gap-4">
@@ -718,9 +734,9 @@ export function App() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Sistem Durumu</label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={(userForm.status === 'Aktif' || userForm.active !== false) ? 'Aktif' : 'Pasif'} onChange={e => setUserForm({...userForm, status: e.target.value, active: e.target.value === 'Aktif'})}>
-                    <option value="Aktif">Aktif (Giriş Yapabilir)</option>
-                    <option value="Pasif">Pasif (Giriş Engelli)</option>
+                  <select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.active ? 'true' : 'false'} onChange={e => setUserForm({...userForm, active: e.target.value === 'true'})}>
+                    <option value="true">Aktif (Sistemi Kullanabilir)</option>
+                    <option value="false">Pasif (Erişim Engelli)</option>
                   </select>
                 </div>
               </div>
@@ -729,7 +745,7 @@ export function App() {
             <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
               <button onClick={() => setIsUserModalOpen(false)} className="px-4 py-2 border border-gray-300 text-gray-700 bg-white rounded text-sm font-medium hover:bg-gray-100 transition-colors">İptal</button>
               <button onClick={handleSaveUser} className="px-6 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2">
-                <CheckSquare size={16} /> Kaydet
+                <CheckSquare size={16} /> Profili Kaydet
               </button>
             </div>
           </div>
@@ -755,7 +771,7 @@ export function App() {
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Kaynak</label><select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={leadForm.source} onChange={e => setLeadForm({...leadForm, source: e.target.value})}>{LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Durum</label><select className="w-full px-3 py-2 border border-blue-300 rounded text-sm focus:outline-none focus:border-blue-500 bg-blue-50/50 text-blue-900 font-semibold" value={leadForm.status} onChange={e => setLeadForm({...leadForm, status: e.target.value})}>{LEAD_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Alt Durum</label><select className="w-full px-3 py-2 border border-blue-300 rounded text-sm focus:outline-none focus:border-blue-500 bg-blue-50/50 text-blue-900 font-semibold" value={leadForm.stage} onChange={e => setLeadForm({...leadForm, stage: e.target.value})}>{LEAD_STAGES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Temsilci</label><select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={leadForm.owner_id} onChange={e => setLeadForm({...leadForm, owner_id: e.target.value})}><option value="">Seçiniz...</option>{appUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}</select></div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Temsilci</label><select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={leadForm.owner_id} onChange={e => setLeadForm({...leadForm, owner_id: e.target.value})}><option value="">Seçiniz...</option>{appUsers.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}</select></div>
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Verilen Teklif</label><div className="relative"><CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} /><input type="text" className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 font-semibold" value={leadForm.quote || ''} onChange={e => setLeadForm({...leadForm, quote: e.target.value})} /></div></div>
                 </div>
 
@@ -772,17 +788,20 @@ export function App() {
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
                   {leadForm.notes && leadForm.notes.length > 0 ? (
-                    leadForm.notes.map((n) => (
-                      <div key={n.id} className="bg-white p-3 rounded border border-gray-200 shadow-sm relative before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-blue-500 before:rounded-l">
-                        <div className="flex justify-between items-start mb-1.5 pl-2">
-                          <span className="text-[11px] font-bold text-blue-700">{n.author}</span>
-                          <span className="text-[10px] text-gray-500 font-medium">
-                            {new Date(n.created_at).toLocaleDateString('tr-TR')} {new Date(n.created_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
+                    leadForm.notes.map((n) => {
+                      const noteAuthor = appUsers.find(u => u.id === n.author_id)?.username || "Bilinmiyor";
+                      return (
+                        <div key={n.id} className="bg-white p-3 rounded border border-gray-200 shadow-sm relative before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-blue-500 before:rounded-l">
+                          <div className="flex justify-between items-start mb-1.5 pl-2">
+                            <span className="text-[11px] font-bold text-blue-700">{noteAuthor}</span>
+                            <span className="text-[10px] text-gray-500 font-medium">
+                              {new Date(n.created_at).toLocaleDateString('tr-TR')} {new Date(n.created_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-700 whitespace-pre-wrap pl-2 leading-relaxed">{n.text}</p>
                         </div>
-                        <p className="text-xs text-gray-700 whitespace-pre-wrap pl-2 leading-relaxed">{n.text}</p>
-                      </div>
-                    ))
+                      )
+                    })
                   ) : (
                     <div className="flex flex-col items-center justify-center h-full text-center py-10 opacity-60"><Clock size={32} className="text-gray-400 mb-2" /><span className="text-xs text-gray-500 font-medium">Bu müşteri için henüz bir işlem<br/>geçmişi bulunmuyor.</span></div>
                   )}
@@ -805,7 +824,7 @@ export function App() {
             <h3 className="text-base font-semibold text-gray-800 mb-4 border-b border-gray-100 pb-2 flex items-center gap-2"><Users size={18} className="text-blue-600" /> Toplu Kayıt Aktarımı</h3>
             <div className="space-y-4">
               <div><label className="block text-xs font-medium text-gray-700 mb-1">Seçilen Kayıt Sayısı</label><div className="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-2 rounded border border-blue-100">{selectedLeadIds.length} Lead Aktarılacak</div></div>
-              <div><label className="block text-xs font-medium text-gray-700 mb-1">Aktarılacak Temsilci Seçin</label><select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={targetUserId} onChange={e => setTargetUserId(e.target.value)}><option value="">Lütfen Temsilci Seçiniz...</option>{appUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
+              <div><label className="block text-xs font-medium text-gray-700 mb-1">Aktarılacak Temsilci Seçin</label><select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={targetUserId} onChange={e => setTargetUserId(e.target.value)}><option value="">Lütfen Temsilci Seçiniz...</option>{appUsers.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}</select></div>
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setIsTransferModalOpen(false)} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded text-sm font-medium hover:bg-gray-50 transition-colors">İptal</button>
