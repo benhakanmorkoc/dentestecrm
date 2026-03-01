@@ -1,4 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
+// =========================================================================
+// 🚀 CANLI ORTAMA (Vercel/GitHub) YÜKLERKEN AŞAĞIDAKİ YORUMU KALDIRIN:
+ import { supabase } from "./supabaseClient"; 
+// =========================================================================
 import { 
   LayoutDashboard, 
   Users, 
@@ -22,10 +26,6 @@ import {
   Filter
 } from "lucide-react";
 
-// =========================================================================
-// 🚀 CANLI ORTAMA (GITHUB) YÜKLERKEN AŞAĞIDAKİ SATIRIN BAŞINDAKİ // İŞARETİNİ SİLİN:
-import { supabase } from "./supabaseClient"; 
-// =========================================================================
 
 // --- CONSTANTS ---
 const LEAD_SOURCES = ["Facebook Reklam", "Direk Arama", "Referans", "Direk Mesaj-Instagram", "Eski Data"];
@@ -48,10 +48,11 @@ function createEmptyUser() {
   return { id: null, name: "", email: "", status: "Aktif", role: "Satış", password: "" };
 }
 
-export default function App() {
+export function App() {
   const [session, setSession] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [activeView, setActiveView] = useState("leads");
+  const [authLoading, setAuthLoading] = useState(true);
   
   // Lead States
   const [leads, setLeads] = useState([]);
@@ -80,8 +81,11 @@ export default function App() {
       if (session) { 
         fetchData(); 
         fetchUsers(session.user.id); 
+      } else {
+        setAuthLoading(false);
       }
     });
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session) { 
@@ -89,8 +93,10 @@ export default function App() {
         fetchUsers(session.user.id); 
       } else {
         setCurrentUser(null);
+        setAuthLoading(false);
       }
     });
+
     return () => subscription.unsubscribe();
   }, []);
 
@@ -109,12 +115,39 @@ export default function App() {
       if (sessionId) {
         const activeUser = data.find(u => u.id === sessionId);
         setCurrentUser(activeUser);
-        if (activeUser?.role !== 'Admin' && activeView === 'users') {
+        if (activeUser?.role !== 'admin' && activeView === 'users') {
           setActiveView('leads');
         }
       }
+      setAuthLoading(false);
     }
   };
+
+  async function handleLogin(event) {
+    event.preventDefault();
+    const username = event.target.username.value.trim();
+    const password = event.target.password.value;
+    if (!username || !password) return;
+
+    setAuthLoading(true);
+    try {
+      const email = username.includes('@') ? username : `${username}@local.minicrm`;
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error || !data.user) {
+        alert("Kullanıcı adı veya şifre hatalı.");
+        setAuthLoading(false);
+        return;
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Giriş yapılırken hata oluştu.");
+      setAuthLoading(false);
+    }
+  }
 
   // --- LEAD FUNCTIONS ---
   const handlePhoneChange = (val) => {
@@ -123,7 +156,7 @@ export default function App() {
   };
 
   const handleDeleteLead = async (id) => {
-    if (currentUser?.role !== 'Admin') { 
+    if (currentUser?.role !== 'admin') { 
       alert("Bu işlem için yetkiniz bulunmamaktadır."); 
       return; 
     }
@@ -176,7 +209,7 @@ export default function App() {
       const { error: noteError } = await supabase.from('lead_notes').insert([{
         lead_id: currentLeadId,
         text: pendingNote,
-        author: currentUser?.name || "Sistem"
+        author: currentUser?.name || currentUser?.username || "Sistem"
       }]);
       if (noteError) console.error("Not kaydedilemedi:", noteError);
     }
@@ -204,25 +237,22 @@ export default function App() {
   };
 
   const exportToCSV = () => { 
-    if (currentUser?.role !== 'Admin') {
+    if (currentUser?.role !== 'admin') {
       alert("Bu işlem için yetkiniz bulunmamaktadır.");
       return; 
     }
     
     const headers = ["İsim,Telefon,Dil,Kaynak,Durum,Alt Durum,Teklif,Sahibi,Tarih"];
     const rows = filteredLeads.map(l => {
-      const ownerName = appUsers.find(u => u.id === l.owner_id)?.name || "Atanmamış";
-      return `${l.name},${l.phone},${l.language},${l.source},${l.status},${l.stage},${l.quote},${ownerName},${l.created_at}`;
+      const ownerName = appUsers.find(u => u.id === l.owner_id)?.name || appUsers.find(u => u.id === l.owner_id)?.username || "Atanmamış";
+      return `${l.name || ''},${l.phone || ''},${l.language || ''},${l.source || ''},${l.status || ''},${l.stage || ''},${l.quote || ''},${ownerName},${l.created_at || ''}`;
     });
     
-    // CSV İçeriği Oluşturma
+    // CSV İçeriği Oluşturma ve BOM ekleme
     const csvData = headers.concat(rows).join("\n");
-    
-    // Türkçe karakter (UTF-8) sorunu için BOM (Byte Order Mark) ekliyoruz
     const BOM = "\uFEFF";
     const csvContent = BOM + csvData;
 
-    // Blob oluşturup indiriyoruz
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -267,7 +297,7 @@ export default function App() {
 
   // --- USER FUNCTIONS ---
   const handleSaveUser = async () => {
-    if (currentUser?.role !== 'Admin') return;
+    if (currentUser?.role !== 'admin') return;
     
     const { password, ...profileData } = userForm;
     const { error } = await supabase.from('profiles').upsert(profileData);
@@ -281,7 +311,7 @@ export default function App() {
   };
 
   const handleDeleteUser = async (id) => {
-    if (currentUser?.role !== 'Admin') return;
+    if (currentUser?.role !== 'admin') return;
     if(!window.confirm("Bu kullanıcıyı sistemden tamamen silmek istediğinize emin misiniz?")) return;
     
     await supabase.from('profiles').delete().match({ id });
@@ -289,7 +319,7 @@ export default function App() {
   };
 
   const handleToggleUserStatus = async (user) => {
-    if (currentUser?.role !== 'Admin') return;
+    if (currentUser?.role !== 'admin') return;
     const newStatus = user.status === "Aktif" ? "Pasif" : "Aktif";
     if(!window.confirm(`Kullanıcı durumunu '${newStatus}' olarak değiştirmek istediğinize emin misiniz?`)) return;
     
@@ -299,13 +329,51 @@ export default function App() {
 
   const filteredUsers = useMemo(() => {
     return appUsers.filter(u => {
-      const matchSearch = u.name?.toLowerCase().includes(userSearchQuery.toLowerCase()) || u.email?.toLowerCase().includes(userSearchQuery.toLowerCase());
+      const matchSearch = u.name?.toLowerCase().includes(userSearchQuery.toLowerCase()) || u.email?.toLowerCase().includes(userSearchQuery.toLowerCase()) || u.username?.toLowerCase().includes(userSearchQuery.toLowerCase());
       const matchStatus = userFilterStatus === "Tümü" || u.status === userFilterStatus;
       return matchSearch && matchStatus;
     });
   }, [appUsers, userSearchQuery, userFilterStatus]);
 
-  if (!session || !currentUser) return <div className="h-screen flex items-center justify-center bg-gray-100 text-gray-500 text-sm animate-pulse">Sisteme bağlanılıyor... Veritabanı bekleniyor.</div>;
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="p-8 bg-white rounded-2xl shadow-xl w-96 text-center border border-gray-100">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500 font-medium">Yükleniyor...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!session || !currentUser) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="p-8 bg-white rounded-2xl shadow-xl w-96 border border-gray-100">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-200">
+              <span className="text-white font-bold text-2xl">D</span>
+            </div>
+            <h1 className="text-2xl font-bold text-gray-800">Denteste CRM</h1>
+            <p className="text-gray-500 text-sm mt-1">Lütfen giriş yapın</p>
+          </div>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Kullanıcı Adı (veya E-posta)</label>
+              <input name="username" type="text" required className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="admin" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Şifre</label>
+              <input name="password" type="password" required className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="••••••" />
+            </div>
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-md mt-4">
+              Giriş Yap
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans text-gray-800 overflow-hidden">
@@ -326,7 +394,7 @@ export default function App() {
                 <LayoutDashboard size={16} /> Lead Havuzu
               </button>
             </li>
-            {currentUser?.role === 'Admin' && (
+            {currentUser?.role === 'admin' && (
               <li>
                 <button onClick={() => setActiveView("users")} className={`w-full flex items-center gap-3 px-6 py-2.5 text-sm transition-colors ${activeView === "users" ? "bg-blue-600 text-white border-l-4 border-blue-400 font-medium" : "hover:bg-slate-700 border-l-4 border-transparent"}`}>
                   <Users size={16} /> Kullanıcılar
@@ -339,11 +407,10 @@ export default function App() {
         <div className="p-4 border-t border-slate-700 bg-slate-900/50">
           <div className="mb-4 px-2">
             <div className="flex items-center gap-2 mb-1">
-              <span className={`w-2 h-2 rounded-full ${currentUser.status === 'Aktif' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
-              <p className="text-xs font-bold text-white">{currentUser.name}</p>
+              <span className={`w-2 h-2 rounded-full ${currentUser.status === 'Aktif' || currentUser.active !== false ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+              <p className="text-xs font-bold text-white truncate">{currentUser.name || currentUser.username}</p>
             </div>
-            <p className="text-[10px] text-slate-400 truncate">{currentUser.email}</p>
-            <p className="text-[10px] font-semibold text-blue-400 mt-1 uppercase tracking-wider">{currentUser.role} Yetkisi</p>
+            <p className="text-[10px] font-semibold text-blue-400 mt-1 uppercase tracking-wider">{currentUser.role === 'admin' ? 'Admin' : 'Satış Personeli'}</p>
           </div>
           <button onClick={() => supabase.auth.signOut()} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded text-xs transition-colors border border-slate-600">
             <LogOut size={14} /> Oturumu Kapat
@@ -363,7 +430,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             {activeView === "leads" ? (
               <>
-                {currentUser?.role === 'Admin' && (
+                {currentUser?.role === 'admin' && (
                   <button onClick={exportToCSV} className="flex items-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded text-sm transition-colors shadow-sm">
                     <Download size={14} /> Dışa Aktar
                   </button>
@@ -373,7 +440,7 @@ export default function App() {
                 </button>
               </>
             ) : (
-              currentUser?.role === 'Admin' && (
+              currentUser?.role === 'admin' && (
                 <button onClick={() => { setUserForm(createEmptyUser()); setIsUserModalOpen(true); }} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm transition-colors shadow-sm">
                   <UserPlus size={14} /> Yeni Kullanıcı
                 </button>
@@ -503,14 +570,14 @@ export default function App() {
                             </div>
                           </td>
                           <td className="px-4 py-2 border-r border-gray-100 text-sm font-semibold text-emerald-600">{l.quote || "-"}</td>
-                          <td className="px-4 py-2 border-r border-gray-100 text-xs text-gray-700">{appUsers.find(u => u.id === l.owner_id)?.name || "Atanmamış"}</td>
+                          <td className="px-4 py-2 border-r border-gray-100 text-xs text-gray-700">{appUsers.find(u => u.id === l.owner_id)?.name || appUsers.find(u => u.id === l.owner_id)?.username || "Atanmamış"}</td>
                           <td className="px-4 py-2 sticky right-0 bg-white group-hover:bg-blue-50/60 z-10 border-l border-gray-200 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.03)]">
                             <div className="flex items-center justify-center gap-2">
                               <button onClick={() => handleEditLead(l)} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded border border-transparent hover:border-blue-200 transition-colors" title="Düzenle / Not Ekle">
                                 <Edit size={16} />
                               </button>
                               
-                              {currentUser?.role === 'Admin' && (
+                              {currentUser?.role === 'admin' && (
                                 <button onClick={() => handleDeleteLead(l.id)} className="p-1.5 text-red-600 hover:bg-red-100 rounded border border-transparent hover:border-red-200 transition-colors" title="Sil">
                                   <Trash2 size={16} />
                                 </button>
@@ -528,7 +595,7 @@ export default function App() {
           )}
 
           {/* === USERS VIEW === */}
-          {activeView === "users" && currentUser?.role === 'Admin' && (
+          {activeView === "users" && currentUser?.role === 'admin' && (
             <div className="space-y-4 max-w-[1200px] mx-auto animate-in fade-in duration-300">
               
               <div className="bg-white p-4 rounded border border-gray-200 shadow-sm flex flex-wrap gap-4 items-end">
@@ -566,24 +633,24 @@ export default function App() {
                       {filteredUsers.map((u) => (
                         <tr key={u.id} className="hover:bg-blue-50/40 transition-colors group">
                           <td className="px-6 py-3 border-r border-gray-100 flex justify-center">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${u.status === 'Aktif' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-500'}`}>
-                              {u.name.charAt(0).toUpperCase()}
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${(u.status === 'Aktif' || u.active !== false) ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-500'}`}>
+                              {(u.name || u.username || "?").charAt(0).toUpperCase()}
                             </div>
                           </td>
-                          <td className="px-6 py-3 border-r border-gray-100 text-sm font-medium text-gray-900">{u.name}</td>
+                          <td className="px-6 py-3 border-r border-gray-100 text-sm font-medium text-gray-900">{u.name || u.username}</td>
                           <td className="px-6 py-3 border-r border-gray-100 text-sm text-gray-600">{u.email}</td>
                           <td className="px-6 py-3 border-r border-gray-100 text-center">
                             <span className={`px-2.5 py-1 rounded text-[11px] font-bold ${
-                              u.role === 'Admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700'
+                              u.role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700'
                             }`}>
-                              {u.role}
+                              {u.role === 'admin' ? 'Admin' : 'Satış'}
                             </span>
                           </td>
                           <td className="px-6 py-3 border-r border-gray-100 text-center">
                             <span className={`px-2.5 py-1 rounded text-[11px] font-semibold border ${
-                              u.status === 'Aktif' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-600 border-gray-300'
+                              (u.status === 'Aktif' || u.active !== false) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-600 border-gray-300'
                             }`}>
-                              {u.status}
+                              {(u.status === 'Aktif' || u.active !== false) ? 'Aktif' : 'Pasif'}
                             </span>
                           </td>
                           <td className="px-6 py-3 text-center">
@@ -591,8 +658,8 @@ export default function App() {
                               <button onClick={() => { setUserForm({...u, password: ""}); setIsUserModalOpen(true); }} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded border border-transparent hover:border-blue-200 transition-colors" title="Kullanıcıyı Düzenle">
                                 <Edit size={16} />
                               </button>
-                              <button onClick={() => handleToggleUserStatus(u)} className={`p-1.5 rounded border border-transparent transition-colors ${u.status === 'Aktif' ? 'text-amber-600 hover:bg-amber-100 hover:border-amber-200' : 'text-emerald-600 hover:bg-emerald-100 hover:border-emerald-200'}`} title={u.status === 'Aktif' ? "Pasife Al (Erişimi Kes)" : "Aktif Et (Erişim Ver)"}>
-                                {u.status === 'Aktif' ? <PowerOff size={16} /> : <Power size={16} />}
+                              <button onClick={() => handleToggleUserStatus(u)} className={`p-1.5 rounded border border-transparent transition-colors ${(u.status === 'Aktif' || u.active !== false) ? 'text-amber-600 hover:bg-amber-100 hover:border-amber-200' : 'text-emerald-600 hover:bg-emerald-100 hover:border-emerald-200'}`} title={(u.status === 'Aktif' || u.active !== false) ? "Pasife Al (Erişimi Kes)" : "Aktif Et (Erişim Ver)"}>
+                                {(u.status === 'Aktif' || u.active !== false) ? <PowerOff size={16} /> : <Power size={16} />}
                               </button>
                               <button onClick={() => handleDeleteUser(u.id)} className="p-1.5 text-red-600 hover:bg-red-100 rounded border border-transparent hover:border-red-200 transition-colors" title="Kalıcı Olarak Sil">
                                 <Trash2 size={16} />
@@ -614,7 +681,7 @@ export default function App() {
       {/* ======================= MODALS ======================= */}
 
       {/* USER MODAL */}
-      {isUserModalOpen && currentUser?.role === 'Admin' && (
+      {isUserModalOpen && currentUser?.role === 'admin' && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
           <div className="bg-white rounded shadow-2xl w-full max-w-lg border border-gray-300 animate-in zoom-in-95 duration-200">
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
@@ -627,31 +694,31 @@ export default function App() {
             
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Ad Soyad</label>
-                <input type="text" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} placeholder="Örn: Ayşe Demir" />
+                <label className="block text-xs font-medium text-gray-700 mb-1">Ad Soyad (veya Username)</label>
+                <input type="text" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.name || userForm.username || ''} onChange={e => setUserForm({...userForm, name: e.target.value, username: e.target.value})} placeholder="Örn: Ayşe Demir" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">E-Posta Adresi (Giriş ID)</label>
-                <input type="email" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} placeholder="ornek@denteste.com" />
+                <input type="email" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.email || ''} onChange={e => setUserForm({...userForm, email: e.target.value})} placeholder="ornek@denteste.com" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Şifre {userForm.id && <span className="text-gray-400 font-normal">(Değiştirmek istemiyorsanız boş bırakın)</span>}
                 </label>
-                <input type="password" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} placeholder="******" />
+                <input type="password" className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.password || ''} onChange={e => setUserForm({...userForm, password: e.target.value})} placeholder="******" />
               </div>
               
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Kullanıcı Rolü (Yetki)</label>
-                  <select className="w-full px-3 py-2 border border-blue-300 bg-blue-50/30 rounded text-sm focus:outline-none focus:border-blue-500 font-medium text-blue-900" value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value})}>
-                    <option value="Satış">Satış Personeli</option>
-                    <option value="Admin">Sistem Yöneticisi (Admin)</option>
+                  <select className="w-full px-3 py-2 border border-blue-300 bg-blue-50/30 rounded text-sm focus:outline-none focus:border-blue-500 font-medium text-blue-900" value={userForm.role || 'sales'} onChange={e => setUserForm({...userForm, role: e.target.value})}>
+                    <option value="sales">Satış Personeli</option>
+                    <option value="admin">Sistem Yöneticisi (Admin)</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Sistem Durumu</label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={userForm.status} onChange={e => setUserForm({...userForm, status: e.target.value})}>
+                  <select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={(userForm.status === 'Aktif' || userForm.active !== false) ? 'Aktif' : 'Pasif'} onChange={e => setUserForm({...userForm, status: e.target.value, active: e.target.value === 'Aktif'})}>
                     <option value="Aktif">Aktif (Giriş Yapabilir)</option>
                     <option value="Pasif">Pasif (Giriş Engelli)</option>
                   </select>
@@ -688,8 +755,8 @@ export default function App() {
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Kaynak</label><select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={leadForm.source} onChange={e => setLeadForm({...leadForm, source: e.target.value})}>{LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Durum</label><select className="w-full px-3 py-2 border border-blue-300 rounded text-sm focus:outline-none focus:border-blue-500 bg-blue-50/50 text-blue-900 font-semibold" value={leadForm.status} onChange={e => setLeadForm({...leadForm, status: e.target.value})}>{LEAD_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
                   <div><label className="block text-xs font-medium text-gray-700 mb-1">Alt Durum</label><select className="w-full px-3 py-2 border border-blue-300 rounded text-sm focus:outline-none focus:border-blue-500 bg-blue-50/50 text-blue-900 font-semibold" value={leadForm.stage} onChange={e => setLeadForm({...leadForm, stage: e.target.value})}>{LEAD_STAGES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Temsilci</label><select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={leadForm.owner_id} onChange={e => setLeadForm({...leadForm, owner_id: e.target.value})}><option value="">Seçiniz...</option>{appUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
-                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Verilen Teklif</label><div className="relative"><CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} /><input type="text" className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 font-semibold" value={leadForm.quote} onChange={e => setLeadForm({...leadForm, quote: e.target.value})} /></div></div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Temsilci</label><select className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={leadForm.owner_id} onChange={e => setLeadForm({...leadForm, owner_id: e.target.value})}><option value="">Seçiniz...</option>{appUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}</select></div>
+                  <div><label className="block text-xs font-medium text-gray-700 mb-1">Verilen Teklif</label><div className="relative"><CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} /><input type="text" className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 font-semibold" value={leadForm.quote || ''} onChange={e => setLeadForm({...leadForm, quote: e.target.value})} /></div></div>
                 </div>
 
                 <div className="mt-6 pt-4 border-t border-gray-200 shrink-0">
@@ -757,3 +824,5 @@ export default function App() {
     </div>
   );
 }
+
+export default App;
