@@ -1,31 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-// =========================================================================
-// 🚀 CANLI ORTAMA (Vercel/GitHub) YÜKLERKEN AŞAĞIDAKİ YORUMU KALDIRIN:
-import { supabase } from "./supabaseClient"; 
-// =========================================================================
 import { 
-  LayoutDashboard, 
-  Users, 
-  LogOut, 
-  Search, 
-  Plus, 
-  X, 
-  Download, 
-  UserPlus,
-  Phone,
-  MessageSquare,
-  CreditCard,
-  Edit,
-  Trash2,
-  Clock,
-  History,
-  CheckSquare,
-  Shield,
-  Power,
-  PowerOff,
-  Filter,
-  Info
+  LayoutDashboard, Users, LogOut, Search, Plus, X, Download, UserPlus,
+  Phone, MessageSquare, CreditCard, Edit, Trash2, Clock, History,
+  CheckSquare, Shield, Power, PowerOff, Filter, Info
 } from "lucide-react";
+
+// Projenize yapıştırdığınızda aşağıdaki import satırının başındaki "//" işaretlerini kaldırın
+// ve önizleme ortamı için eklenen geçici "const supabase" tanımlamasını silin.
+import { supabase } from "./supabaseClient"; 
 
 // --- CONSTANTS ---
 const LEAD_SOURCES = ["Facebook Reklam", "Direk Arama", "Referans", "Direk Mesaj-Instagram", "Eski Data"];
@@ -110,7 +92,6 @@ export function App() {
   };
 
   const fetchUsers = async (sessionId) => {
-    // profiles tablosunda artık name değil username olduğu için sıralamayı username'e göre yapıyoruz.
     const { data, error } = await supabase.from('profiles').select('*').order('username');
     
     if (error) {
@@ -140,7 +121,6 @@ export function App() {
 
     setAuthLoading(true);
     try {
-      // E-posta girilmezse projenizdeki yapıya göre default domain ekliyoruz
       const email = username.includes('@') ? username : `${username}@local.minicrm`;
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -215,7 +195,6 @@ export function App() {
 
     const currentLeadId = savedLead?.id || id;
 
-    // Yeni not varsa lead_notes tablosuna ekle (author_id kolonunu kullanarak)
     if (pendingNote && pendingNote.trim() !== "" && currentLeadId) {
       const { error: noteError } = await supabase.from('lead_notes').insert([{
         lead_id: currentLeadId,
@@ -310,7 +289,6 @@ export function App() {
   const handleSaveUser = async () => {
     if (currentUser?.role !== 'admin') return;
     
-    // Yalnızca profiles tablosunda var olan kolonları gönderiyoruz.
     const profileData = {
       username: userForm.username,
       role: userForm.role,
@@ -339,7 +317,7 @@ export function App() {
 
   const handleToggleUserStatus = async (user) => {
     if (currentUser?.role !== 'admin') return;
-    const newStatus = !user.active; // boolean toggle
+    const newStatus = !user.active; 
     if(!window.confirm(`Kullanıcı durumunu '${newStatus ? 'Aktif' : 'Pasif'}' olarak değiştirmek istediğinize emin misiniz?`)) return;
     
     await supabase.from('profiles').update({ active: newStatus }).match({ id: user.id });
@@ -383,7 +361,7 @@ export function App() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Kullanıcı Adı</label>
-              <input name="username" type="text" required className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="admin" />
+              <input name="username" type="text" required className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="Kullanıcı Adı" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Şifre</label>
@@ -551,6 +529,21 @@ export function App() {
                 </div>
               )}
 
+              {/* RECORD SUMMARY */}
+              <div className="flex justify-between items-center pt-2 pb-1 px-1 mt-2">
+                <span className="text-sm font-bold text-gray-700">Müşteri Havuzu</span>
+                <div className="flex gap-3 text-xs">
+                  <div className="flex items-center gap-1.5 text-gray-600 bg-white px-2.5 py-1 rounded-md border border-gray-200 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-gray-400"></span>
+                    Toplam: <strong className="text-gray-800">{leads.length}</strong>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                    Listelenen: <strong className="text-blue-800">{filteredLeads.length}</strong>
+                  </div>
+                </div>
+              </div>
+
               {/* LEAD TABLE */}
               <div className="bg-white border border-gray-200 rounded shadow-sm overflow-hidden flex flex-col relative z-0">
                 <div className="overflow-x-auto custom-scrollbar">
@@ -636,6 +629,21 @@ export function App() {
                     <option value="Aktif">Aktif Kullanıcılar</option>
                     <option value="Pasif">Pasif (Askıda)</option>
                   </select>
+                </div>
+              </div>
+
+              {/* RECORD SUMMARY (USERS) */}
+              <div className="flex justify-between items-center pt-2 pb-1 px-1 mt-2">
+                <span className="text-sm font-bold text-gray-700">Kullanıcı Listesi</span>
+                <div className="flex gap-3 text-xs">
+                  <div className="flex items-center gap-1.5 text-gray-600 bg-white px-2.5 py-1 rounded-md border border-gray-200 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-gray-400"></span>
+                    Toplam: <strong className="text-gray-800">{appUsers.length}</strong>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                    Listelenen: <strong className="text-blue-800">{filteredUsers.length}</strong>
+                  </div>
                 </div>
               </div>
 
