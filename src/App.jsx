@@ -9,6 +9,8 @@ import {
 // ve önizleme ortamı için eklenen geçici "const supabase" tanımlamasını silin.
 import { supabase } from "./supabaseClient"; 
 
+// ÖNİZLEME İÇİN GEÇİCİ BOŞ OBJE (Kendi projenizde bu kısmı silin)
+
 // --- CONSTANTS ---
 const LEAD_SOURCES = ["Facebook Reklam", "Direk Arama", "Referans", "Direk Mesaj-Instagram", "Eski Data"];
 const LEAD_STATUSES = ["Yeni", "Cevapsız", "Sıcak", "Satış", "İptal", "Yabancı", "Türk", "Düşünüp Geri Dönüş Sağlayacak", "İletişimde", "İstanbul Dışı", "Randevu Verilen", "Randevu Gelen", "Randevu Gelmeyen", "Yanlış Başvuru"];
@@ -43,6 +45,8 @@ export function App() {
   const [filterLanguage, setFilterLanguage] = useState("Tümü");
   const [filterSource, setFilterSource] = useState("Tümü");
   const [quickFilter, setQuickFilter] = useState(""); 
+  const [filterStartDate, setFilterStartDate] = useState("");
+  const [filterEndDate, setFilterEndDate] = useState("");
   
   const [selectedLeadIds, setSelectedLeadIds] = useState([]);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -261,6 +265,15 @@ export function App() {
       const matchLanguage = filterLanguage === "Tümü" || l.language === filterLanguage;
       const matchSource = filterSource === "Tümü" || l.source === filterSource;
       
+      let matchDateRange = true;
+      if (filterStartDate) {
+        matchDateRange = matchDateRange && new Date(l.created_at) >= new Date(filterStartDate);
+      }
+      if (filterEndDate) {
+        // Bitiş gününün tamamını kapsamak için saate 23:59:59 ekliyoruz
+        matchDateRange = matchDateRange && new Date(l.created_at) <= new Date(`${filterEndDate}T23:59:59`);
+      }
+      
       let matchQuick = true;
       if (quickFilter) {
         const createdDate = new Date(l.created_at);
@@ -281,9 +294,9 @@ export function App() {
         }
       }
       
-      return matchSearch && matchStatus && matchLanguage && matchSource && matchQuick;
+      return matchSearch && matchStatus && matchLanguage && matchSource && matchQuick && matchDateRange;
     });
-  }, [leads, searchQuery, filterStatus, filterLanguage, filterSource, quickFilter]);
+  }, [leads, searchQuery, filterStatus, filterLanguage, filterSource, quickFilter, filterStartDate, filterEndDate]);
 
   // --- USER FUNCTIONS ---
   const handleSaveUser = async () => {
@@ -514,6 +527,14 @@ export function App() {
                     <option value="Tümü">Tümü</option>
                     {LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
+                </div>
+                <div className="w-full sm:w-36">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Başlangıç Tarihi</label>
+                  <input type="date" className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 text-gray-600" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} />
+                </div>
+                <div className="w-full sm:w-36">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Bitiş Tarihi</label>
+                  <input type="date" className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 text-gray-600" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} />
                 </div>
               </div>
 
