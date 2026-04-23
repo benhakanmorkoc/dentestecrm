@@ -289,6 +289,28 @@ export function App() {
     fetchDueReminders();
   };
 
+  const openLeadFromReminder = async (reminder) => {
+    setActiveView("leads");
+    const existingLead = leads.find((l) => l.id === reminder.lead_id);
+    if (existingLead) {
+      await handleEditLead(existingLead);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("leads")
+      .select("*")
+      .eq("id", reminder.lead_id)
+      .single();
+
+    if (error || !data) {
+      alert("İlgili lead kaydı bulunamadı.");
+      return;
+    }
+
+    await handleEditLead(data);
+  };
+
   const handleSelectAll = (e) => { e.target.checked ? setSelectedLeadIds(filteredLeads.map(l => l.id)) : setSelectedLeadIds([]); };
   const handleSelectOne = (id) => { setSelectedLeadIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]); };
 
@@ -940,19 +962,35 @@ export function App() {
                     <p className="text-xs font-bold text-amber-700 flex items-center gap-1">
                       <Bell size={12} /> Hatırlatma Zamanı
                     </p>
-                    <p className="text-sm font-semibold text-gray-800 mt-1">{leadName}</p>
+                    <button
+                      type="button"
+                      onClick={() => openLeadFromReminder(reminder)}
+                      className="text-sm font-semibold text-left text-blue-700 mt-1 hover:underline"
+                      title="Lead kaydını aç"
+                    >
+                      {leadName}
+                    </button>
                     <p className="text-[11px] text-gray-500 mt-1">
                       {new Date(reminder.remind_at).toLocaleDateString("tr-TR")}{" "}
                       {new Date(reminder.remind_at).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => markReminderDone(reminder.id)}
-                    className="text-[11px] px-2 py-1 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                  >
-                    Tamamlandı
-                  </button>
+                  <div className="flex flex-col gap-1">
+                    <button
+                      type="button"
+                      onClick={() => openLeadFromReminder(reminder)}
+                      className="text-[11px] px-2 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200"
+                    >
+                      Kaydı Aç
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => markReminderDone(reminder.id)}
+                      className="text-[11px] px-2 py-1 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                    >
+                      Tamamlandı
+                    </button>
+                  </div>
                 </div>
               </div>
             );
