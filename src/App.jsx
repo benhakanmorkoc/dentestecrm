@@ -1,19 +1,36 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { 
-  LayoutDashboard, Users, LogOut, Search, Plus, X, Download, UserPlus,
-  Phone, MessageSquare, CreditCard, Edit, Trash2, Clock, History,
-  CheckSquare, Shield, Power, PowerOff, Filter, Info
-} from "lucide-react";
-
-// Projenize yapıştırdığınızda aşağıdaki import satırının başındaki "//" işaretlerini kaldırın
-// ve önizleme ortamı için eklenen geçici "const supabase" tanımlamasını silin.
+// =========================================================================
+// 🚀 CANLI ORTAMA (Vercel/GitHub) YÜKLERKEN AŞAĞIDAKİ YORUMU KALDIRIN:
 import { supabase } from "./supabaseClient"; 
-
-// ÖNİZLEME İÇİN GEÇİCİ BOŞ OBJE (Kendi projenizde bu kısmı silin)
+// =========================================================================
+import { 
+  LayoutDashboard, 
+  Users, 
+  LogOut, 
+  Search, 
+  Plus, 
+  X, 
+  Download, 
+  UserPlus,
+  Phone,
+  MessageSquare,
+  CreditCard,
+  Edit,
+  Trash2,
+  Clock,
+  History,
+  CheckSquare,
+  Shield,
+  Power,
+  PowerOff,
+  Filter,
+  Info,
+  Bell
+} from "lucide-react";
 
 // --- CONSTANTS ---
 const LEAD_SOURCES = ["Facebook Reklam", "Direk Arama", "Referans", "Direk Mesaj-Instagram", "Eski Data"];
-const LEAD_STATUSES = ["Yeni", "Cevapsız", "Sıcak", "Satış", "İptal", "Yabancı", "Türk", "Düşünüp Geri Dönüş Sağlayacak", "İletişimde", "İstanbul Dışı", "Randevu Verilen", "Randevu Gelen", "Randevu Gelmeyen", "Yanlış Başvuru"];
+const LEAD_STATUSES = ["Yeni", "Cevapsız", "Sıcak", "Satış", "İptal", "Yabancı", "Türk", "Düşünüp Geri Dönüş Sağlayacak", "İletişimde", "İstanbul Dışı", "Vazgeçti", "Randevu Verilen", "Randevu Gelen", "Randevu Gelmeyen", "Yanlış Başvuru"];
 const LEAD_STAGES = ["Çok Uzak", "Çok Pahalı", "Şişli Uzak", "Diğer"];
 const LANGUAGES = ["TR", "EN", "DE", "FR", "AR"];
 
@@ -45,14 +62,15 @@ export function App() {
   const [filterLanguage, setFilterLanguage] = useState("Tümü");
   const [filterSource, setFilterSource] = useState("Tümü");
   const [quickFilter, setQuickFilter] = useState(""); 
-  const [filterStartDate, setFilterStartDate] = useState("");
-  const [filterEndDate, setFilterEndDate] = useState("");
   
   const [selectedLeadIds, setSelectedLeadIds] = useState([]);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [targetUserId, setTargetUserId] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [leadForm, setLeadForm] = useState(createEmptyLead(null));
+  const [reminders, setReminders] = useState([]);
+  const [reminderAmount, setReminderAmount] = useState(1);
+  const [reminderUnit, setReminderUnit] = useState("gun");
 
   // User States
   const [appUsers, setAppUsers] = useState([]); 
@@ -95,7 +113,27 @@ export function App() {
     }
   };
 
+  const fetchDueReminders = async () => {
+    if (!currentUser?.id) return;
+    const nowIso = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("lead_reminders")
+      .select("id, lead_id, remind_at, is_done, created_by")
+      .eq("created_by", currentUser.id)
+      .eq("is_done", false)
+      .lte("remind_at", nowIso)
+      .order("remind_at", { ascending: true });
+
+    if (error) {
+      console.error("Hatırlatıcı çekme hatası:", error);
+      return;
+    }
+
+    setReminders(data || []);
+  };
+
   const fetchUsers = async (sessionId) => {
+    // profiles tablosunda artık name değil username olduğu için sıralamayı username'e göre yapıyoruz.
     const { data, error } = await supabase.from('profiles').select('*').order('username');
     
     if (error) {
@@ -125,6 +163,7 @@ export function App() {
 
     setAuthLoading(true);
     try {
+      // E-posta girilmezse projenizdeki yapıya göre default domain ekliyoruz
       const email = username.includes('@') ? username : `${username}@local.minicrm`;
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -199,6 +238,7 @@ export function App() {
 
     const currentLeadId = savedLead?.id || id;
 
+    // Yeni not varsa lead_notes tablosuna ekle (author_id kolonunu kullanarak)
     if (pendingNote && pendingNote.trim() !== "" && currentLeadId) {
       const { error: noteError } = await supabase.from('lead_notes').insert([{
         lead_id: currentLeadId,
@@ -210,6 +250,43 @@ export function App() {
 
     setIsModalOpen(false);
     fetchData();
+  };
+
+  const handleAddReminder = async () => {
+    if (!leadForm.id) {
+      alert("Hatırlatıcı eklemek için önce kaydı oluşturup kaydetmelisiniz.");
+      return;
+    }
+    const safeAmount = Number(reminderAmount);
+    if (!Number.isFinite(safeAmount) || safeAmount <= 0) {
+      alert("Lütfen geçerli bir hatırlatma süresi giriniz.");
+      return;
+    }
+    const durationMs = reminderUnit === "gun"
+      ? safeAmount * 24 * 60 * 60 * 1000
+      : safeAmount * 60 * 60 * 1000;
+    const remindAt = new Date(Date.now() + durationMs).toISOString();
+    const { error } = await supabase.from("lead_reminders").insert([{
+      lead_id: leadForm.id,
+      remind_at: remindAt,
+      is_done: false,
+      created_by: currentUser?.id
+    }]);
+    if (error) {
+      alert("Hatırlatıcı eklenemedi: " + error.message);
+      return;
+    }
+    alert("Hatırlatıcı eklendi.");
+    fetchDueReminders();
+  };
+
+  const markReminderDone = async (id) => {
+    const { error } = await supabase.from("lead_reminders").update({ is_done: true }).match({ id });
+    if (error) {
+      alert("Hatırlatıcı güncellenemedi: " + error.message);
+      return;
+    }
+    fetchDueReminders();
   };
 
   const handleSelectAll = (e) => { e.target.checked ? setSelectedLeadIds(filteredLeads.map(l => l.id)) : setSelectedLeadIds([]); };
@@ -265,15 +342,6 @@ export function App() {
       const matchLanguage = filterLanguage === "Tümü" || l.language === filterLanguage;
       const matchSource = filterSource === "Tümü" || l.source === filterSource;
       
-      let matchDateRange = true;
-      if (filterStartDate) {
-        matchDateRange = matchDateRange && new Date(l.created_at) >= new Date(filterStartDate);
-      }
-      if (filterEndDate) {
-        // Bitiş gününün tamamını kapsamak için saate 23:59:59 ekliyoruz
-        matchDateRange = matchDateRange && new Date(l.created_at) <= new Date(`${filterEndDate}T23:59:59`);
-      }
-      
       let matchQuick = true;
       if (quickFilter) {
         const createdDate = new Date(l.created_at);
@@ -294,14 +362,15 @@ export function App() {
         }
       }
       
-      return matchSearch && matchStatus && matchLanguage && matchSource && matchQuick && matchDateRange;
+      return matchSearch && matchStatus && matchLanguage && matchSource && matchQuick;
     });
-  }, [leads, searchQuery, filterStatus, filterLanguage, filterSource, quickFilter, filterStartDate, filterEndDate]);
+  }, [leads, searchQuery, filterStatus, filterLanguage, filterSource, quickFilter]);
 
   // --- USER FUNCTIONS ---
   const handleSaveUser = async () => {
     if (currentUser?.role !== 'admin') return;
     
+    // Yalnızca profiles tablosunda var olan kolonları gönderiyoruz.
     const profileData = {
       username: userForm.username,
       role: userForm.role,
@@ -330,7 +399,7 @@ export function App() {
 
   const handleToggleUserStatus = async (user) => {
     if (currentUser?.role !== 'admin') return;
-    const newStatus = !user.active; 
+    const newStatus = !user.active; // boolean toggle
     if(!window.confirm(`Kullanıcı durumunu '${newStatus ? 'Aktif' : 'Pasif'}' olarak değiştirmek istediğinize emin misiniz?`)) return;
     
     await supabase.from('profiles').update({ active: newStatus }).match({ id: user.id });
@@ -348,6 +417,13 @@ export function App() {
       return matchSearch && matchStatus;
     });
   }, [appUsers, userSearchQuery, userFilterStatus]);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    fetchDueReminders();
+    const intervalId = setInterval(fetchDueReminders, 30000);
+    return () => clearInterval(intervalId);
+  }, [currentUser?.id]);
 
   if (authLoading) {
     return (
@@ -374,7 +450,7 @@ export function App() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Kullanıcı Adı</label>
-              <input name="username" type="text" required className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="Kullanıcı Adı" />
+              <input name="username" type="text" required className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="admin" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Şifre</label>
@@ -528,14 +604,6 @@ export function App() {
                     {LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
-                <div className="w-full sm:w-36">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Başlangıç Tarihi</label>
-                  <input type="date" className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 text-gray-600" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} />
-                </div>
-                <div className="w-full sm:w-36">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Bitiş Tarihi</label>
-                  <input type="date" className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 text-gray-600" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} />
-                </div>
               </div>
 
               {/* BULK ACTIONS */}
@@ -549,21 +617,6 @@ export function App() {
                   </button>
                 </div>
               )}
-
-              {/* RECORD SUMMARY */}
-              <div className="flex justify-between items-center pt-2 pb-1 px-1 mt-2">
-                <span className="text-sm font-bold text-gray-700">Müşteri Havuzu</span>
-                <div className="flex gap-3 text-xs">
-                  <div className="flex items-center gap-1.5 text-gray-600 bg-white px-2.5 py-1 rounded-md border border-gray-200 shadow-sm">
-                    <span className="w-2 h-2 rounded-full bg-gray-400"></span>
-                    Toplam: <strong className="text-gray-800">{leads.length}</strong>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200 shadow-sm">
-                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                    Listelenen: <strong className="text-blue-800">{filteredLeads.length}</strong>
-                  </div>
-                </div>
-              </div>
 
               {/* LEAD TABLE */}
               <div className="bg-white border border-gray-200 rounded shadow-sm overflow-hidden flex flex-col relative z-0">
@@ -650,21 +703,6 @@ export function App() {
                     <option value="Aktif">Aktif Kullanıcılar</option>
                     <option value="Pasif">Pasif (Askıda)</option>
                   </select>
-                </div>
-              </div>
-
-              {/* RECORD SUMMARY (USERS) */}
-              <div className="flex justify-between items-center pt-2 pb-1 px-1 mt-2">
-                <span className="text-sm font-bold text-gray-700">Kullanıcı Listesi</span>
-                <div className="flex gap-3 text-xs">
-                  <div className="flex items-center gap-1.5 text-gray-600 bg-white px-2.5 py-1 rounded-md border border-gray-200 shadow-sm">
-                    <span className="w-2 h-2 rounded-full bg-gray-400"></span>
-                    Toplam: <strong className="text-gray-800">{appUsers.length}</strong>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200 shadow-sm">
-                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                    Listelenen: <strong className="text-blue-800">{filteredUsers.length}</strong>
-                  </div>
                 </div>
               </div>
 
@@ -808,6 +846,34 @@ export function App() {
                   <label className="flex items-center gap-1.5 text-xs font-bold text-blue-700 mb-2"><MessageSquare size={14} /> YENİ GÖRÜŞME NOTU EKLE</label>
                   <textarea rows="3" className="w-full px-3 py-2 border border-blue-200 rounded text-sm focus:outline-none focus:border-blue-500 resize-none bg-blue-50/30 text-gray-800" value={leadForm.pendingNote} onChange={e => setLeadForm({...leadForm, pendingNote: e.target.value})}></textarea>
                 </div>
+                <div className="mt-4 pt-4 border-t border-gray-200 shrink-0">
+                  <label className="flex items-center gap-1.5 text-xs font-bold text-amber-700 mb-2"><Bell size={14} /> HATIRLATICI EKLE</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      className="w-24 px-3 py-2 border border-amber-200 rounded text-sm focus:outline-none focus:border-amber-500 bg-amber-50/30 text-gray-800"
+                      value={reminderAmount}
+                      onChange={e => setReminderAmount(e.target.value)}
+                    />
+                    <select
+                      className="px-3 py-2 border border-amber-200 rounded text-sm focus:outline-none focus:border-amber-500 bg-amber-50/30 text-gray-800"
+                      value={reminderUnit}
+                      onChange={e => setReminderUnit(e.target.value)}
+                    >
+                      <option value="saat">Saat</option>
+                      <option value="gun">Gün</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleAddReminder}
+                      className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded text-sm font-medium transition-colors"
+                    >
+                      Hatırlatıcı Ekle
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="w-full md:w-80 bg-gray-50 p-0 flex flex-col border-t md:border-t-0 border-gray-200 shrink-0">
@@ -860,6 +926,37 @@ export function App() {
               <button onClick={handleBulkTransfer} disabled={!targetUserId} className="flex-1 bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Aktar</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {reminders.length > 0 && (
+        <div className="fixed bottom-4 right-4 w-80 max-h-[50vh] overflow-auto z-[120] space-y-2">
+          {reminders.map((reminder) => {
+            const leadName = leads.find((l) => l.id === reminder.lead_id)?.name || "Bilinmeyen Lead";
+            return (
+              <div key={reminder.id} className="bg-white border border-amber-300 rounded-lg shadow-lg p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold text-amber-700 flex items-center gap-1">
+                      <Bell size={12} /> Hatırlatma Zamanı
+                    </p>
+                    <p className="text-sm font-semibold text-gray-800 mt-1">{leadName}</p>
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      {new Date(reminder.remind_at).toLocaleDateString("tr-TR")}{" "}
+                      {new Date(reminder.remind_at).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => markReminderDone(reminder.id)}
+                    className="text-[11px] px-2 py-1 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                  >
+                    Tamamlandı
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
