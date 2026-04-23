@@ -290,25 +290,57 @@ export function App() {
   };
 
   const openLeadFromReminder = async (reminder) => {
-    setActiveView("leads");
-    const existingLead = leads.find((l) => l.id === reminder.lead_id);
-    if (existingLead) {
-      await handleEditLead(existingLead);
+    if (!reminder?.lead_id) {
+      alert("Bu hatırlatıcıya bağlı lead bilgisi bulunamadı.");
       return;
     }
 
-    const { data, error } = await supabase
-      .from("leads")
-      .select("*")
-      .eq("id", reminder.lead_id)
-      .single();
+    setActiveView("leads");
 
-    if (error || !data) {
+    const existingLead = leads.find((l) => String(l.id) === String(reminder.lead_id));
+    const targetLead = existingLead
+      ? existingLead
+      : await (async () => {
+          const { data, error } = await supabase
+            .from("leads")
+            .select("*")
+            .eq("id", reminder.lead_id)
+            .single();
+          if (error) return null;
+          return data;
+        })();
+
+    if (!targetLead) {
       alert("İlgili lead kaydı bulunamadı.");
       return;
     }
 
-    await handleEditLead(data);
+    setLeadForm({ ...targetLead, pendingNote: "", notes: [] });
+    setIsModalOpen(true);
+
+    const { data: notesData, error: notesError } = await supabase
+      .from("lead_notes")
+      .select("*")
+      .eq("lead_id", targetLead.id)
+      .order("created_at", { ascending: false });
+
+    if (notesError) {
+      console.error("Notları çekerken hata oluştu:", notesError);
+      return;
+    }
+
+    setLeadForm((prev) => ({ ...prev, notes: notesData || [] }));
+
+    // Popup'tan açılan hatırlatıcıyı otomatik tamamlandı olarak işaretle.
+    const { error: doneError } = await supabase
+      .from("lead_reminders")
+      .update({ is_done: true })
+      .match({ id: reminder.id });
+    if (doneError) {
+      console.error("Hatırlatıcı tamamlandı işaretlenemedi:", doneError);
+      return;
+    }
+    fetchDueReminders();
   };
 
   const handleSelectAll = (e) => { e.target.checked ? setSelectedLeadIds(filteredLeads.map(l => l.id)) : setSelectedLeadIds([]); };
