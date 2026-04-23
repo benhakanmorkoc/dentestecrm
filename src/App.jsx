@@ -289,7 +289,7 @@ export function App() {
     fetchDueReminders();
   };
 
-  const openLeadFromReminder = async (reminder) => {
+  const openLeadFromReminder = async (reminder, markAsDone = false) => {
     if (!reminder?.lead_id) {
       alert("Bu hatırlatıcıya bağlı lead bilgisi bulunamadı.");
       return;
@@ -331,16 +331,18 @@ export function App() {
 
     setLeadForm((prev) => ({ ...prev, notes: notesData || [] }));
 
-    // Popup'tan açılan hatırlatıcıyı otomatik tamamlandı olarak işaretle.
-    const { error: doneError } = await supabase
-      .from("lead_reminders")
-      .update({ is_done: true })
-      .match({ id: reminder.id });
-    if (doneError) {
-      console.error("Hatırlatıcı tamamlandı işaretlenemedi:", doneError);
-      return;
+    if (markAsDone) {
+      // Kullanıcı Kaydı Aç dediğinde popup'ın anında kapanması için listeden düşürüyoruz.
+      setReminders((prev) => prev.filter((r) => r.id !== reminder.id));
+      const { error: doneError } = await supabase
+        .from("lead_reminders")
+        .update({ is_done: true })
+        .match({ id: reminder.id });
+      if (doneError) {
+        console.error("Hatırlatıcı tamamlandı işaretlenemedi:", doneError);
+      }
+      fetchDueReminders();
     }
-    fetchDueReminders();
   };
 
   const handleSelectAll = (e) => { e.target.checked ? setSelectedLeadIds(filteredLeads.map(l => l.id)) : setSelectedLeadIds([]); };
@@ -1010,7 +1012,7 @@ export function App() {
                   <div className="flex flex-col gap-1">
                     <button
                       type="button"
-                      onClick={() => openLeadFromReminder(reminder)}
+                      onClick={() => openLeadFromReminder(reminder, true)}
                       className="text-[11px] px-2 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200"
                     >
                       Kaydı Aç
