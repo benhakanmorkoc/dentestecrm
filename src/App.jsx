@@ -27,8 +27,7 @@ import {
   Info,
   Bell,
   BarChart2,
-  GitCompare,
-  Wallet
+  GitCompare
 } from "lucide-react";
 
 // --- CONSTANTS ---
@@ -78,15 +77,6 @@ function statusCountsFromLeads(leadList) {
     else diger++;
   }
   return { counts, diger, total: leadList.length };
-}
-
-function parseQuoteNumber(quote) {
-  if (quote == null || quote === "") return null;
-  const cleaned = String(quote).replace(/\s/g, "").replace(/,/g, ".");
-  const match = cleaned.match(/-?\d+(\.\d+)?/);
-  if (!match) return null;
-  const n = parseFloat(match[0]);
-  return Number.isFinite(n) ? n : null;
 }
 
 function parseSpendInput(val) {
@@ -140,12 +130,6 @@ export function App() {
   const [compareSpendA, setCompareSpendA] = useState("");
   const [compareSpendB, setCompareSpendB] = useState("");
 
-  const [costStartDate, setCostStartDate] = useState("");
-  const [costEndDate, setCostEndDate] = useState("");
-  const [costSource, setCostSource] = useState("Tümü");
-  const [costLanguage, setCostLanguage] = useState("Tümü");
-  const [costOwnerId, setCostOwnerId] = useState("");
-  
   const [selectedLeadIds, setSelectedLeadIds] = useState([]);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [targetUserId, setTargetUserId] = useState("");
@@ -604,43 +588,23 @@ export function App() {
     return { perStatus, diger: perLead * compareMatrixB.diger };
   }, [compareReady, compareMatrixB, compareSpendNumB]);
 
-  const costFilteredLeads = useMemo(
-    () => filterLeadsForReport(leads, costStartDate, costEndDate, costSource, costLanguage, costOwnerId),
-    [leads, costStartDate, costEndDate, costSource, costLanguage, costOwnerId]
-  );
-
-  const costStatusMatrix = useMemo(() => {
-    const counts = {};
-    const sums = {};
+  const reportDashboardBars = useMemo(() => {
+    const rows = [];
     for (const s of LEAD_STATUSES) {
-      counts[s] = 0;
-      sums[s] = 0;
+      const v = reportStatusMatrix.counts[s];
+      if (v > 0) rows.push({ label: s, value: v });
     }
-    let digerCount = 0;
-    let digerSum = 0;
-    let quoteParsedTotal = 0;
-    for (const l of costFilteredLeads) {
-      const st = l.status || "";
-      const num = parseQuoteNumber(l.quote);
-      const add = num != null ? num : 0;
-      if (num != null) quoteParsedTotal += num;
-      if (st in counts) {
-        counts[st]++;
-        sums[st] += add;
-      } else {
-        digerCount++;
-        digerSum += add;
-      }
+    if (reportStatusMatrix.diger > 0) {
+      rows.push({ label: "Diğer", value: reportStatusMatrix.diger });
     }
-    return {
-      counts,
-      sums,
-      digerCount,
-      digerSum,
-      total: costFilteredLeads.length,
-      quoteParsedTotal
-    };
-  }, [costFilteredLeads]);
+    rows.sort((a, b) => b.value - a.value);
+    return rows;
+  }, [reportStatusMatrix]);
+
+  const reportDashboardMax = useMemo(() => {
+    if (!reportDashboardBars.length) return 1;
+    return Math.max(...reportDashboardBars.map((r) => r.value), 1);
+  }, [reportDashboardBars]);
 
   // --- USER FUNCTIONS ---
   const handleSaveUser = async () => {
@@ -806,9 +770,7 @@ export function App() {
               : activeView === "reports"
                 ? (reportSubView === "dashboard"
                     ? "Raporlar — Dashboard"
-                    : reportSubView === "comparison"
-                      ? "Raporlar — Karşılaştırma"
-                      : "Raporlar — Maliyet")
+                    : "Raporlar — Karşılaştırma-Maliyet")
                 : "Sistem Kullanıcıları"}
           </h2>
           
@@ -1023,14 +985,7 @@ export function App() {
                       onClick={() => setReportSubView("comparison")}
                       className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${reportSubView === "comparison" ? "bg-blue-600 text-white shadow-sm" : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50"}`}
                     >
-                      <GitCompare size={16} /> Karşılaştırma
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setReportSubView("cost")}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${reportSubView === "cost" ? "bg-blue-600 text-white shadow-sm" : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50"}`}
-                    >
-                      <Wallet size={16} /> Maliyet
+                      <GitCompare size={16} /> Karşılaştırma-Maliyet
                     </button>
                   </>
                 )}
@@ -1081,44 +1036,48 @@ export function App() {
                     <span className="inline-flex items-center gap-2 bg-blue-50 text-blue-800 px-3 py-1.5 rounded-md border border-blue-200 font-medium">
                       <BarChart2 size={16} /> Filtrelenen toplam: <strong>{reportStatusMatrix.total}</strong> kayıt
                     </span>
-                    <span className="text-xs text-gray-500">Durum kırılımı aşağıdaki tabloda kolon başlıkları olarak gösterilir.</span>
+                    <span className="text-xs text-gray-500">Durumlara göre kayıt adedi; çubuklar büyükten küçüğe sıralıdır.</span>
                   </div>
 
-                  <div className="bg-white border border-gray-200 rounded shadow-sm overflow-hidden">
-                    <div className="overflow-x-auto custom-scrollbar">
-                      <table className="min-w-max w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-slate-100 border-b border-gray-200">
-                            <th className="sticky left-0 z-20 bg-slate-100 px-3 py-2 text-xs font-semibold text-gray-600 border-r border-gray-200 min-w-[100px] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
-                              Gösterge
-                            </th>
-                            {LEAD_STATUSES.map((st) => (
-                              <th key={st} className="px-2 py-2 text-[10px] font-semibold text-gray-700 border-r border-gray-200 whitespace-nowrap max-w-[120px] align-bottom" title={st}>
-                                <span className="line-clamp-2">{st}</span>
-                              </th>
-                            ))}
-                            <th className="px-2 py-2 text-[10px] font-semibold text-amber-800 bg-amber-50 border-r border-amber-200 whitespace-nowrap">
-                              Diğer
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr className="bg-white hover:bg-slate-50/80">
-                            <td className="sticky left-0 z-10 bg-white px-3 py-2 text-xs font-bold text-gray-800 border-r border-gray-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
-                              Kayıt adedi
-                            </td>
-                            {LEAD_STATUSES.map((st) => (
-                              <td key={st} className="px-2 py-2 text-center text-sm font-semibold text-gray-900 border-r border-gray-100 tabular-nums">
-                                {reportStatusMatrix.counts[st]}
-                              </td>
-                            ))}
-                            <td className="px-2 py-2 text-center text-sm font-semibold text-amber-900 bg-amber-50/50 border-r border-amber-100 tabular-nums">
-                              {reportStatusMatrix.diger}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
+                  <div className="rounded-lg border border-gray-200 bg-[#f0f1f4] shadow-sm overflow-hidden">
+                    {reportDashboardBars.length === 0 ? (
+                      <div className="text-sm text-gray-500 text-center py-16 px-4">Bu filtrelerle gösterilecek durum dağılımı yok (tüm adetler sıfır).</div>
+                    ) : (
+                      <div className="overflow-x-auto custom-scrollbar px-4 pt-6 pb-2">
+                        <div
+                          className="flex items-end justify-center gap-2 sm:gap-4 mx-auto"
+                          style={{ minWidth: `${Math.max(reportDashboardBars.length * 56, 280)}px`, minHeight: "300px" }}
+                        >
+                          {reportDashboardBars.map(({ label, value }, barIdx) => {
+                            const pct = reportDashboardMax > 0 ? (value / reportDashboardMax) * 100 : 0;
+                            const shortLabel = label.length > 16 ? `${label.slice(0, 14)}…` : label;
+                            return (
+                              <div key={`report-bar-${barIdx}`} className="flex flex-col items-center flex-1 min-w-[48px] max-w-[120px]">
+                                <div className="mb-1 px-2 py-0.5 bg-white rounded text-[11px] font-bold text-gray-900 shadow-sm tabular-nums whitespace-nowrap">
+                                  {value}
+                                </div>
+                                <div className="w-full flex flex-col justify-end h-[220px]">
+                                  <div
+                                    className="w-[78%] mx-auto rounded-t-[2px] bg-[#1a2f4a] min-h-[3px] transition-[height] duration-300"
+                                    style={{ height: `${Math.max(pct, 0)}%` }}
+                                    title={`${label}: ${value}`}
+                                  />
+                                </div>
+                                <div className="relative mt-3 h-16 w-full flex justify-center">
+                                  <span
+                                    className="absolute top-0 left-1/2 text-[10px] sm:text-[11px] text-gray-900 font-medium leading-snug text-center whitespace-nowrap origin-top -rotate-45 -translate-x-1/2"
+                                    style={{ maxWidth: "140px" }}
+                                    title={label}
+                                  >
+                                    {shortLabel}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -1126,7 +1085,7 @@ export function App() {
               {reportSubView === "comparison" && currentUser?.role === "admin" && (
                 <>
                   <div className="bg-amber-50/80 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-900 space-y-1">
-                    <p><strong>1. dönem</strong> satırı <span className="font-semibold text-yellow-800">sarı</span>, <strong>2. dönem</strong> satırı <span className="font-semibold text-purple-800">mor</span> renkte gösterilir. Her iki dönem için başlangıç ve bitiş tarihlerini seçin.</p>
+                    <p><strong>Karşılaştırma-Maliyet:</strong> <strong>1. dönem</strong> satırı <span className="font-semibold text-yellow-800">sarı</span>, <strong>2. dönem</strong> satırı <span className="font-semibold text-purple-800">mor</span> renkte gösterilir. Her iki dönem için başlangıç ve bitiş tarihlerini seçin.</p>
                     <p>Her dönem için <strong>toplam harcama (TL)</strong> girerseniz <strong>CPL = harcama ÷ lead adedi</strong> hesaplanır; harcama durum kolonlarında, o durumdaki lead sayısına göre <strong>orantılı</strong> dağıtılarak gösterilir (sütun toplamı girilen harcamaya eşittir).</p>
                   </div>
 
@@ -1198,14 +1157,14 @@ export function App() {
                         }}
                         className="px-3 py-1.5 text-xs font-semibold text-red-600 border border-red-200 bg-red-50 rounded hover:bg-red-100"
                       >
-                        Karşılaştırma filtrelerini sıfırla
+                        Karşılaştırma-Maliyet filtrelerini sıfırla
                       </button>
                     </div>
                   </div>
 
                   {!compareReady && (
                     <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-4 py-3">
-                      Karşılaştırma tablosunu görmek için <strong>her iki dönem</strong> için başlangıç ve bitiş tarihlerini seçin.
+                      Karşılaştırma-Maliyet tablosunu görmek için <strong>her iki dönem</strong> için başlangıç ve bitiş tarihlerini seçin.
                     </div>
                   )}
 
@@ -1306,107 +1265,6 @@ export function App() {
                 </>
               )}
 
-              {reportSubView === "cost" && currentUser?.role === "admin" && (
-                <>
-                  <div className="bg-white p-4 rounded border border-gray-200 shadow-sm flex flex-wrap gap-4 items-end">
-                    <div className="w-full sm:w-36">
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Oluşturulma (başlangıç)</label>
-                      <input type="date" className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 text-gray-600" value={costStartDate} onChange={e => setCostStartDate(e.target.value)} />
-                    </div>
-                    <div className="w-full sm:w-36">
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Oluşturulma (bitiş)</label>
-                      <input type="date" className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 text-gray-600" value={costEndDate} onChange={e => setCostEndDate(e.target.value)} />
-                    </div>
-                    <div className="w-full sm:w-48">
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Kaynak</label>
-                      <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm" value={costSource} onChange={e => setCostSource(e.target.value)}>
-                        <option value="Tümü">Tümü</option>
-                        {LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </div>
-                    <div className="w-full sm:w-32">
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Dil</label>
-                      <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm" value={costLanguage} onChange={e => setCostLanguage(e.target.value)}>
-                        <option value="Tümü">Tümü</option>
-                        {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
-                      </select>
-                    </div>
-                    <div className="w-full sm:w-48">
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Temsilci</label>
-                      <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm" value={costOwnerId} onChange={e => setCostOwnerId(e.target.value)}>
-                        <option value="">Tümü</option>
-                        {appUsers.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
-                      </select>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => { setCostStartDate(""); setCostEndDate(""); setCostSource("Tümü"); setCostLanguage("Tümü"); setCostOwnerId(""); }}
-                      className="px-3 py-1.5 text-xs font-semibold text-red-600 border border-red-200 bg-red-50 rounded hover:bg-red-100"
-                    >
-                      Sıfırla
-                    </button>
-                  </div>
-
-                  <div className="bg-emerald-50/80 border border-emerald-200 rounded-lg px-4 py-3 text-xs text-emerald-900">
-                    <strong>Maliyet özeti:</strong> Veritabanında ayrı bir maliyet alanı olmadığı için, sayısal çözümlenebilen <strong>teklif (quote)</strong> değerleri durum bazında toplanır. Metin içindeki ilk sayı okunur; ileride gerçek maliyet kolonu eklendiğinde bu rapor ona bağlanabilir.
-                  </div>
-
-                  <div className="flex flex-wrap gap-3 text-sm">
-                    <span className="inline-flex items-center gap-2 bg-white px-3 py-1.5 rounded-md border border-gray-200 font-medium text-gray-800">
-                      Filtrelenen kayıt: <strong>{costStatusMatrix.total}</strong>
-                    </span>
-                    <span className="inline-flex items-center gap-2 bg-emerald-50 text-emerald-900 px-3 py-1.5 rounded-md border border-emerald-200 font-medium">
-                      Çözümlenen teklif toplamı: <strong>{costStatusMatrix.quoteParsedTotal.toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</strong>
-                    </span>
-                  </div>
-
-                  <div className="bg-white border border-gray-200 rounded shadow-sm overflow-hidden">
-                    <div className="overflow-x-auto custom-scrollbar">
-                      <table className="min-w-max w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-slate-100 border-b border-gray-200">
-                            <th className="sticky left-0 z-20 bg-slate-100 px-3 py-2 text-xs font-semibold text-gray-600 border-r border-gray-200 min-w-[100px] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
-                              Gösterge
-                            </th>
-                            {LEAD_STATUSES.map((st) => (
-                              <th key={st} className="px-2 py-2 text-[10px] font-semibold text-gray-700 border-r border-gray-200 whitespace-nowrap max-w-[120px] align-bottom" title={st}>
-                                <span className="line-clamp-2">{st}</span>
-                              </th>
-                            ))}
-                            <th className="px-2 py-2 text-[10px] font-semibold text-amber-800 bg-amber-50 border-r border-amber-200 whitespace-nowrap">
-                              Diğer
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr className="bg-white">
-                            <td className="sticky left-0 z-10 bg-white px-3 py-2 text-xs font-bold text-gray-800 border-r border-gray-200">Kayıt adedi</td>
-                            {LEAD_STATUSES.map((st) => (
-                              <td key={st} className="px-2 py-2 text-center text-sm font-semibold text-gray-900 border-r border-gray-100 tabular-nums">
-                                {costStatusMatrix.counts[st]}
-                              </td>
-                            ))}
-                            <td className="px-2 py-2 text-center text-sm font-semibold text-amber-900 bg-amber-50/50 border-r border-amber-100 tabular-nums">
-                              {costStatusMatrix.digerCount}
-                            </td>
-                          </tr>
-                          <tr className="bg-emerald-50/50">
-                            <td className="sticky left-0 z-10 bg-emerald-50/80 px-3 py-2 text-xs font-bold text-emerald-900 border-r border-emerald-200">Teklif toplamı (sayısal)</td>
-                            {LEAD_STATUSES.map((st) => (
-                              <td key={st} className="px-2 py-2 text-center text-sm font-semibold text-emerald-900 border-r border-emerald-100/80 tabular-nums">
-                                {costStatusMatrix.sums[st].toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                              </td>
-                            ))}
-                            <td className="px-2 py-2 text-center text-sm font-semibold text-amber-900 bg-amber-50/80 border-r border-amber-100 tabular-nums">
-                              {costStatusMatrix.digerSum.toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </>
-              )}
             </div>
           )}
 
