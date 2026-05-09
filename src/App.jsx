@@ -39,6 +39,7 @@ const QUICK_FILTERS = [
   { id: "Satıldı", label: "✅ Satıldı" },
   { id: "Bugün", label: "📅 Bugün" },
   { id: "Bu Ay", label: "📊 Bu Ay" },
+  { id: "Geçen Ay", label: "📆 Geçen Ay" },
   { id: "Son 3 Ay", label: "🕒 Son 3 Ay" }
 ];
 
@@ -62,6 +63,8 @@ export function App() {
   const [filterLanguage, setFilterLanguage] = useState("Tümü");
   const [filterSource, setFilterSource] = useState("Tümü");
   const [quickFilter, setQuickFilter] = useState(""); 
+  const [filterStartDate, setFilterStartDate] = useState("");
+  const [filterEndDate, setFilterEndDate] = useState("");
   
   const [selectedLeadIds, setSelectedLeadIds] = useState([]);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -397,6 +400,20 @@ export function App() {
       const matchStatus = filterStatus === "Tümü" || l.status === filterStatus;
       const matchLanguage = filterLanguage === "Tümü" || l.language === filterLanguage;
       const matchSource = filterSource === "Tümü" || l.source === filterSource;
+
+      let matchDateRange = true;
+      if (filterStartDate || filterEndDate) {
+        const created = new Date(l.created_at);
+        if (filterStartDate) {
+          const from = new Date(filterStartDate);
+          from.setHours(0, 0, 0, 0);
+          if (Number.isFinite(created.getTime()) && created < from) matchDateRange = false;
+        }
+        if (filterEndDate && matchDateRange) {
+          const to = new Date(`${filterEndDate}T23:59:59.999`);
+          if (Number.isFinite(created.getTime()) && created > to) matchDateRange = false;
+        }
+      }
       
       let matchQuick = true;
       if (quickFilter) {
@@ -410,7 +427,12 @@ export function App() {
         } 
         else if (quickFilter === "Bu Ay") {
           matchQuick = createdDate.getMonth() === today.getMonth() && createdDate.getFullYear() === today.getFullYear();
-        } 
+        }
+        else if (quickFilter === "Geçen Ay") {
+          const firstDayLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+          const lastDayLastMonth = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999);
+          matchQuick = createdDate >= firstDayLastMonth && createdDate <= lastDayLastMonth;
+        }
         else if (quickFilter === "Son 3 Ay") {
           const threeMonthsAgo = new Date();
           threeMonthsAgo.setMonth(today.getMonth() - 3);
@@ -418,9 +440,9 @@ export function App() {
         }
       }
       
-      return matchSearch && matchStatus && matchLanguage && matchSource && matchQuick;
+      return matchSearch && matchStatus && matchLanguage && matchSource && matchDateRange && matchQuick;
     });
-  }, [leads, searchQuery, filterStatus, filterLanguage, filterSource, quickFilter]);
+  }, [leads, searchQuery, filterStatus, filterLanguage, filterSource, quickFilter, filterStartDate, filterEndDate]);
 
   // --- USER FUNCTIONS ---
   const handleSaveUser = async () => {
@@ -660,6 +682,14 @@ export function App() {
                     {LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
+                <div className="w-full sm:w-36">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Oluşturulma (başlangıç)</label>
+                  <input type="date" className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 text-gray-600" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} />
+                </div>
+                <div className="w-full sm:w-36">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Oluşturulma (bitiş)</label>
+                  <input type="date" className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 text-gray-600" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} />
+                </div>
               </div>
 
               {/* BULK ACTIONS */}
@@ -673,6 +703,20 @@ export function App() {
                   </button>
                 </div>
               )}
+
+              <div className="flex justify-between items-center pt-2 pb-1 px-1">
+                <span className="text-sm font-bold text-gray-700">Müşteri Havuzu</span>
+                <div className="flex gap-3 text-xs">
+                  <div className="flex items-center gap-1.5 text-gray-600 bg-white px-2.5 py-1 rounded-md border border-gray-200 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-gray-400"></span>
+                    Toplam: <strong className="text-gray-800">{leads.length}</strong>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                    Filtre sonucu: <strong className="text-blue-800">{filteredLeads.length}</strong>
+                  </div>
+                </div>
+              </div>
 
               {/* LEAD TABLE */}
               <div className="bg-white border border-gray-200 rounded shadow-sm overflow-hidden flex flex-col relative z-0">
