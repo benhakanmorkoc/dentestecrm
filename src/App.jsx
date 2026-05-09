@@ -25,7 +25,8 @@ import {
   PowerOff,
   Filter,
   Info,
-  Bell
+  Bell,
+  BarChart2
 } from "lucide-react";
 
 // --- CONSTANTS ---
@@ -65,6 +66,12 @@ export function App() {
   const [quickFilter, setQuickFilter] = useState(""); 
   const [filterStartDate, setFilterStartDate] = useState("");
   const [filterEndDate, setFilterEndDate] = useState("");
+
+  const [reportStartDate, setReportStartDate] = useState("");
+  const [reportEndDate, setReportEndDate] = useState("");
+  const [reportSource, setReportSource] = useState("Tümü");
+  const [reportLanguage, setReportLanguage] = useState("Tümü");
+  const [reportOwnerId, setReportOwnerId] = useState("");
   
   const [selectedLeadIds, setSelectedLeadIds] = useState([]);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -444,6 +451,40 @@ export function App() {
     });
   }, [leads, searchQuery, filterStatus, filterLanguage, filterSource, quickFilter, filterStartDate, filterEndDate]);
 
+  const reportFilteredLeads = useMemo(() => {
+    return leads.filter((l) => {
+      let matchDate = true;
+      if (reportStartDate || reportEndDate) {
+        const created = new Date(l.created_at);
+        if (reportStartDate) {
+          const from = new Date(reportStartDate);
+          from.setHours(0, 0, 0, 0);
+          if (Number.isFinite(created.getTime()) && created < from) matchDate = false;
+        }
+        if (reportEndDate && matchDate) {
+          const to = new Date(`${reportEndDate}T23:59:59.999`);
+          if (Number.isFinite(created.getTime()) && created > to) matchDate = false;
+        }
+      }
+      const matchSrc = reportSource === "Tümü" || l.source === reportSource;
+      const matchLang = reportLanguage === "Tümü" || l.language === reportLanguage;
+      const matchOwner = !reportOwnerId || l.owner_id === reportOwnerId;
+      return matchDate && matchSrc && matchLang && matchOwner;
+    });
+  }, [leads, reportStartDate, reportEndDate, reportSource, reportLanguage, reportOwnerId]);
+
+  const reportStatusMatrix = useMemo(() => {
+    const counts = {};
+    for (const s of LEAD_STATUSES) counts[s] = 0;
+    let diger = 0;
+    for (const l of reportFilteredLeads) {
+      const st = l.status || "";
+      if (st in counts) counts[st]++;
+      else diger++;
+    }
+    return { counts, diger, total: reportFilteredLeads.length };
+  }, [reportFilteredLeads]);
+
   // --- USER FUNCTIONS ---
   const handleSaveUser = async () => {
     if (currentUser?.role !== 'admin') return;
@@ -562,6 +603,11 @@ export function App() {
                 <LayoutDashboard size={16} /> Lead Havuzu
               </button>
             </li>
+            <li>
+              <button onClick={() => setActiveView("reports")} className={`w-full flex items-center gap-3 px-6 py-2.5 text-sm transition-colors ${activeView === "reports" ? "bg-blue-600 text-white border-l-4 border-blue-400 font-medium" : "hover:bg-slate-700 border-l-4 border-transparent"}`}>
+                <BarChart2 size={16} /> Raporlar
+              </button>
+            </li>
             {currentUser?.role === 'admin' && (
               <li>
                 <button onClick={() => setActiveView("users")} className={`w-full flex items-center gap-3 px-6 py-2.5 text-sm transition-colors ${activeView === "users" ? "bg-blue-600 text-white border-l-4 border-blue-400 font-medium" : "hover:bg-slate-700 border-l-4 border-transparent"}`}>
@@ -592,7 +638,11 @@ export function App() {
         {/* HEADER */}
         <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 z-20 shrink-0 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-800">
-            {activeView === "leads" ? "Müşteri Adayı Yönetimi" : "Sistem Kullanıcıları"}
+            {activeView === "leads"
+              ? "Müşteri Adayı Yönetimi"
+              : activeView === "reports"
+                ? "Raporlar — Dashboard"
+                : "Sistem Kullanıcıları"}
           </h2>
           
           <div className="flex items-center gap-3">
@@ -607,6 +657,10 @@ export function App() {
                   <Plus size={14} /> Yeni Kayıt
                 </button>
               </>
+            ) : activeView === "reports" ? (
+              <button type="button" onClick={() => fetchData()} className="flex items-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded text-sm transition-colors shadow-sm">
+                <Clock size={14} /> Verileri yenile
+              </button>
             ) : (
               currentUser?.role === 'admin' && (
                 <button onClick={() => { setUserForm(createEmptyUser()); setIsUserModalOpen(true); }} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm transition-colors shadow-sm">
@@ -779,6 +833,94 @@ export function App() {
                     </tbody>
                   </table>
                   {filteredLeads.length === 0 && <div className="py-8 text-center text-sm text-gray-500">Kriterlere uygun kayıt bulunamadı.</div>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* === REPORTS / DASHBOARD === */}
+          {activeView === "reports" && (
+            <div className="space-y-4 max-w-[1800px] mx-auto animate-in fade-in duration-300">
+              <div className="bg-white p-4 rounded border border-gray-200 shadow-sm flex flex-wrap gap-4 items-end">
+                <div className="w-full sm:w-36">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Oluşturulma (başlangıç)</label>
+                  <input type="date" className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 text-gray-600" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)} />
+                </div>
+                <div className="w-full sm:w-36">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Oluşturulma (bitiş)</label>
+                  <input type="date" className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 text-gray-600" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)} />
+                </div>
+                <div className="w-full sm:w-48">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Kaynak</label>
+                  <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={reportSource} onChange={e => setReportSource(e.target.value)}>
+                    <option value="Tümü">Tümü</option>
+                    {LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="w-full sm:w-32">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Dil</label>
+                  <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={reportLanguage} onChange={e => setReportLanguage(e.target.value)}>
+                    <option value="Tümü">Tümü</option>
+                    {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                </div>
+                <div className="w-full sm:w-48">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Temsilci</label>
+                  <select className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500" value={reportOwnerId} onChange={e => setReportOwnerId(e.target.value)}>
+                    <option value="">Tümü</option>
+                    {appUsers.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setReportStartDate(""); setReportEndDate(""); setReportSource("Tümü"); setReportLanguage("Tümü"); setReportOwnerId(""); }}
+                  className="px-3 py-1.5 text-xs font-semibold text-red-600 border border-red-200 bg-red-50 rounded hover:bg-red-100"
+                >
+                  Rapor filtrelerini sıfırla
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <span className="inline-flex items-center gap-2 bg-blue-50 text-blue-800 px-3 py-1.5 rounded-md border border-blue-200 font-medium">
+                  <BarChart2 size={16} /> Filtrelenen toplam: <strong>{reportStatusMatrix.total}</strong> kayıt
+                </span>
+                <span className="text-xs text-gray-500">Durum kırılımı aşağıdaki tabloda kolon başlıkları olarak gösterilir.</span>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded shadow-sm overflow-hidden">
+                <div className="overflow-x-auto custom-scrollbar">
+                  <table className="min-w-max w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-100 border-b border-gray-200">
+                        <th className="sticky left-0 z-20 bg-slate-100 px-3 py-2 text-xs font-semibold text-gray-600 border-r border-gray-200 min-w-[100px] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
+                          Gösterge
+                        </th>
+                        {LEAD_STATUSES.map((st) => (
+                          <th key={st} className="px-2 py-2 text-[10px] font-semibold text-gray-700 border-r border-gray-200 whitespace-nowrap max-w-[120px] align-bottom" title={st}>
+                            <span className="line-clamp-2">{st}</span>
+                          </th>
+                        ))}
+                        <th className="px-2 py-2 text-[10px] font-semibold text-amber-800 bg-amber-50 border-r border-amber-200 whitespace-nowrap">
+                          Diğer
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="bg-white hover:bg-slate-50/80">
+                        <td className="sticky left-0 z-10 bg-white px-3 py-2 text-xs font-bold text-gray-800 border-r border-gray-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                          Kayıt adedi
+                        </td>
+                        {LEAD_STATUSES.map((st) => (
+                          <td key={st} className="px-2 py-2 text-center text-sm font-semibold text-gray-900 border-r border-gray-100 tabular-nums">
+                            {reportStatusMatrix.counts[st]}
+                          </td>
+                        ))}
+                        <td className="px-2 py-2 text-center text-sm font-semibold text-amber-900 bg-amber-50/50 border-r border-amber-100 tabular-nums">
+                          {reportStatusMatrix.diger}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
